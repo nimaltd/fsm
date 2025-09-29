@@ -1,9 +1,14 @@
 
 /*
- * @file        FSM
+ * @file        fsm.h
+ * @brief       Finite State Machine + task manager Library
  * @author      Nima Askari
  * @version     1.0.0
  * @license     See the LICENSE file in the root folder.
+ *
+ * @note        All my libraries are dual-licensed.
+ *              Please review the licensing terms before using them.
+ *              For any inquiries, feel free to contact me.
  *
  * @github      https://www.github.com/nimaltd
  * @linkedin    https://www.linkedin.com/in/nimaltd
@@ -11,48 +16,6 @@
  * @instagram   https://instagram.com/github.nimaltd
  *
  * Copyright (C) 2025 Nima Askari - NimaLTD. All rights reserved.
- *
- */
-
-/*
- *  FSM (Finite State Machine) Library Help
- *
- *  Overview:
- *  This library provides a lightweight framework to manage state-based logic
- *  in embedded applications. Each state is represented by a function, and
- *  the FSM structure keeps track of the current state, next state, and
- *  optional timed transitions.
- *
- *  Usage:
- *  1. Define your state functions:
- *      void state_idle(void)
- *      {
- *          // Do idle actions here
- *          // Transition immediately to run state
- *          fsm_next(&myfsm, state_run, 0);
- *      }
- *
- *      void state_run(void)
- *      {
- *          // Do running actions here
- *          // After 1000 ms, go back to idle state
- *          fsm_next(&myfsm, state_idle, 1000);
- *      }
- *
- *  2. Create and initialize an FSM instance:
- *      fsm_t myfsm;
- *      fsm_init(&myfsm, state_idle);
- *
- *  3. In your main loop, call:
- *      while (1)
- *      {
- *          fsm_loop(&myfsm);
- *      }
- *
- *  Notes:
- *  - All state functions must match the signature: void func(void).
- *  - Delays are non-blocking; they rely on a time source (e.g., HAL_GetTick()).
- *  - You can change state either from main code or inside a state function.
  */
 
 #ifndef _FSM_H_
@@ -67,27 +30,53 @@ extern "C" {
 /*************************************************************************************************/
 
 #include "main.h"
+#include "fsm_config.h"
 
 /*************************************************************************************************/
-/** Strucs and Enums **/
+/** Typedef/Struct/Enum **/
 /*************************************************************************************************/
 
+/*************************************************************************************************/
+/* Error values returned */
+typedef enum
+{
+  FSM_ERR_NONE        = 0,  /* No error */
+  FSM_ERR_FULL,             /* Task queue is full */
+
+} fsm_err_t;
+
+/*************************************************************************************************/
+/* Internal state machine structure */
 typedef struct
 {
-  void                (*next_fn)(void);
-  uint32_t            time;
-  uint32_t            delay_ms;
+  void                (*next_fn)(void);                 /* Pointer to the next state function */
+  void                (*task_fn[FSM_MAX_TASKS])(void);  /* Circular buffer of task functions */
+  uint32_t            time;                             /* Internal time counter (ms) */
+  uint32_t            delay_ms;                         /* Delay before switching to next state */
+  uint32_t            task_cnt;                         /* Number of tasks in queue */
+  uint32_t            task_head;                        /* Head index of the task queue */
+  uint32_t            task_tail;                        /* Tail index of the task queue */
 
 } fsm_t;
 
 /*************************************************************************************************/
-/** Function Declarations **/
+/** API Functions **/
 /*************************************************************************************************/
 
+/* Initialize FSM instance */
 void      fsm_init(fsm_t *handle, const void (*first_fn)(void));
+
+/* Main loop handler. Should be called periodically */
 void      fsm_loop(fsm_t *handle);
+
+/* Change FSM to the next state after a delay */
 void      fsm_next(fsm_t *handle, const void (*next_fn)(void), uint32_t delay_ms);
+
+/* Get internal FSM time */
 uint32_t  fsm_time(fsm_t *handle);
+
+/* Add a task function to FSM task queue */
+fsm_err_t fsm_task_add(fsm_t *handle, const void (*new_task_fn)(void));
 
 /*************************************************************************************************/
 /** End of File **/
