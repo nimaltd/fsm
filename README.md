@@ -85,6 +85,7 @@ void state_idle(void)
     }
 }
 
+/* ===== States ===== */
 void state_calc1(void)
 {
     // do ...
@@ -92,6 +93,7 @@ void state_calc1(void)
     fsm_next(&hFsm, state_calc2, 200);
 }
 
+/* ===== States ===== */
 void state_calc2(void)
 {
     // do ...
