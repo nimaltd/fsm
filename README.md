@@ -1,122 +1,158 @@
-# 🌀 Finite State Machine + Task Manager Library (FSM)
+# 🌀 Finite State Machine + Task Manager Library for STM32  
 
-Lightweight, non-blocking FSM with built-in task queue support for embedded systems (e.g. STM32/HAL).
+A lightweight and efficient **Finite State Machine (FSM)** library with built-in **non-blocking task manager**, written in C for STM32 (HAL-based).  
 
-Designed to let you manage state transitions **without blocking delays**, while also scheduling small tasks to run “in-between” states.
+Unlike blocking implementations, this library uses **time-based state transitions** and a **task queue system** to keep your main loop responsive.  
+It can be used in **any CubeMX STM32 project**, making it fully flexible and easy to integrate.  
 
----
+It is designed for:  
 
-## ✅ Supported Features / Use Cases
-
-- Simple state machine control with delayed transitions  
-- Task queue to schedule “background” tasks without blocking state processing  
-- Works on any HAL-based platform (e.g. STM32)  
-- Low overhead (pure C, minimal dependencies)  
-- Useful in systems where you want to avoid `while(delay)` loops or blocking delay calls  
+- Projects where CPU blocking (`HAL_Delay`) must be avoided  
+- Applications that need **clean state handling**  
+- Event-driven systems that use **interrupts** (EXTI, UART, Timers)  
+- Easy portability across STM32 families (F0/F1/F3/F4/F7/G0/G4/H7, etc.)  
 
 ---
 
-## ✨ Features
+## ✨ Features  
 
-- **Non-blocking delays**: transition to the next state after a delay (ms)a without blocking execution  
-- **Task queue**: schedule tasks (function pointers) to run before the next state  
-- **Elapsed-time query**: query how long the current state has been active  
-- **Configurable queue size**: via `fsm_config.h`  
-- **Assertion-based parameter checks** (requires HAL / `assert_param`)  
-
----
-
-## 🛠️ Installation
-
-1. Copy `fsm.h`, `fsm_config.h`, and `fsm.c` into your project (e.g. into your `Drivers` or `Src` folder).  
-2. Include `fsm.h` wherever you want to use the FSM.  
-3. Ensure `fsm_config.h` is in your include path.  
+- 🔹 Non-blocking **state transitions** with millisecond resolution  
+- 🔹 Built-in **task queue system** for background jobs  
+- 🔹 Works with **interrupt callbacks** (e.g. EXTI, UART, Timer)  
+- 🔹 Fully HAL-compatible (`HAL_GetTick()`)  
+- 🔹 Small memory footprint, portable C code  
+- 🔹 Simple, clean API  
 
 ---
 
-## ⚙️ Configuration (`fsm_config.h`)
+## ⚙️ Installation  
+
+You can install in two ways:  
+
+### 1. Copy files directly  
+Add these files to your STM32 project:  
+- `fsm.h`  
+- `fsm.c`  
+- `fsm_config.h`  
+
+### 2. STM32Cube Pack Installer (Recommended)  
+Available in the official pack repo:  
+👉 [STM32-PACK](https://github.com/nimaltd/STM32-PACK)  (Not Ready)  
+
+---
+
+## 🔧 Configuration (`fsm_config.h`)  
+
+Defines library limits and task queue size. Example:  
 
 ```c
-/* USER CODE BEGIN FSM_INCLUDES */
-/* USER CODE END FSM_INCLUDES */
-
-/* USER CODE BEGIN FSM_CONFIGURATION */
-#define FSM_MAX_TASKS 16
-/* USER CODE END FSM_CONFIGURATION */
-```
-
-- **FSM_MAX_TASKS**: Maximum number of pending tasks in the queue.  
-- You may also add includes or custom defines in the USER CODE regions.  
+#define FSM_MAX_TASKS     16    // Max number of queued tasks
+```  
 
 ---
 
-## 🧩 Integration / Setup (Platform Specific)
+## 🛠 CubeMX Setup  
 
-- Ensure that `HAL_GetTick()` is available (for timekeeping).  
-- Include `assert_param(...)` or an equivalent assertion mechanism.  
-- In your hardware setup, ensure the tick timer is running (e.g. SysTick) so HAL_GetTick() increments.
+1. **System Tick Timer**  
+   - HAL must have a working SysTick (default in CubeMX).  
+
+2. **GPIO (Optional)**  
+   - Configure a button as **External Interrupt** (e.g., `B1` on `PC13`).  
+
+3. **NVIC**  
+   - Enable EXTI line interrupt in CubeMX for your button pin.  
 
 ---
 
-## 🚀 Quick Start / Example Usage
+## 🚀 Quick Start  
 
+### Include header  
 ```c
 #include "fsm.h"
+```  
 
-static fsm_t my_fsm;
+### Define handle  
+```c
+fsm_t hFsm;
+```  
 
-/* Forward declarations of state functions */
-void state_idle(void);
-void state_work(void);
+### Initialize in `main.c`  
+```c
+fsm_init(&hFsm, state_idle);
 
-/* In your init function */
-fsm_init(&my_fsm, state_idle);
+while (1)
+{
+    fsm_loop(&hFsm);   // must be called frequently
+}
+```  
 
-/* In your main loop */
-while (1) {
-    fsm_loop(&my_fsm);
-    // other things you want to do
+### Example: Using FSM with EXTI Button Interrupt  
+
+```c
+/* ===== States ===== */
+void state_idle(void)
+{
+    // stay idle until button event
+    fsm_next(&hFsm, state_idle, 1000);  // re-check after 1s
 }
 
-/* Definition of states */
-void state_idle(void) {
-    // do something in idle
-    // then schedule next
-    fsm_next(&my_fsm, state_work, 500);  // after 500 ms go to state_work
+void state_button(void)
+{
+    // toggle LED on button press
+    HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+
+    // go back to idle after 200 ms
+    fsm_next(&hFsm, state_idle, 200);
 }
 
-void state_work(void) {
-    // do work
-    // maybe add a background task
-    fsm_task_add(&my_fsm, some_task_fn);
-    // go back to idle or another state
-    fsm_next(&my_fsm, state_idle, 1000);
+/* ===== Task Function ===== */
+void button_task(void)
+{
+    // switch FSM to button state
+    fsm_next(&hFsm, state_button, 0);
 }
 
-void some_task_fn(void) {
-    // small function to run between state transitions
+/* ===== Interrupt Callback ===== */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    if (GPIO_Pin == B1_Pin) // User button
+    {
+        // Schedule FSM task safely from interrupt
+        fsm_task_add(&hFsm, button_task);
+    }
 }
 ```
 
-- `fsm_loop(...)` should be called frequently (e.g. in main loop or periodic scheduler).  
-- If there are pending tasks in the queue, they run *before* state transitions.  
-- Delays are non-blocking: `fsm_next` just sets up the next state and delay, but does not block execution.
+✅ ISR stays short → only `fsm_task_add()` is called  
+✅ FSM executes logic in main loop → no blocking in ISR  
 
 ---
 
-## 📋 API Reference
+## 🧰 API Overview  
 
 | Function | Description |
 |----------|-------------|
-| `fsm_init(fsm_t *handle, const void (*first_fn)(void))` | Initialize the FSM handle and set the first state |
-| `fsm_loop(fsm_t *handle)` | Should be called periodically; executes tasks or advances state |
-| `fsm_next(fsm_t *handle, const void (*next_fn)(void), uint32_t delay_ms)` | Schedule next state after a delay (ms) |
-| `fsm_time(fsm_t *handle)` | Return elapsed milliseconds since entering the current state |
-| `fsm_task_add(fsm_t *handle, const void (*new_task_fn)(void))` | Add a task to run before the next state; returns # define `FSM_ERR_NONE` or `FSM_ERR_FULL` |
+| `fsm_init()` | Initialize FSM handle with first state |
+| `fsm_loop()` | Main loop handler; runs tasks and state changes |
+| `fsm_next()` | Schedule next state after delay (ms) |
+| `fsm_time()` | Get elapsed time in current state |
+| `fsm_task_add()` | Add a function task to be executed by FSM |
 
 ---
 
-## 📦 License & Attribution
+## 💖 Support  
 
-This library is **dual-licensed**. Please see the `LICENSE` file for details.  
-Copyright (C) 2025 Nima Askari – NimaLTD. All rights reserved.
+If you find this project useful, please **⭐ star** the repo and consider supporting!  
+
+- [![GitHub](https://img.shields.io/badge/GitHub-Follow-black?style=for-the-badge&logo=github)](https://github.com/NimaLTD)  
+- [![YouTube](https://img.shields.io/badge/YouTube-Subscribe-red?style=for-the-badge&logo=youtube)](https://youtube.com/@nimaltd)
+- [![Instagram](https://img.shields.io/badge/Instagram-Follow-blue?style=for-the-badge&logo=instagram)](https://instagram.com/github.nimaltd)
+- [![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-blue?style=for-the-badge&logo=linkedin)](https://linkedin.com/in/nimaltd)
+- [![Email](https://img.shields.io/badge/Email-Contact-red?style=for-the-badge&logo=gmail)](mailto:nima.askari@gmail.com)
+- [![Ko-fi](https://img.shields.io/badge/Ko--fi-Support-orange?style=for-the-badge&logo=ko-fi)](https://ko-fi.com/nimaltd)
+
+---
+
+## 📜 License  
+
+Licensed under the terms in the [LICENSE](./LICENSE.TXT).  
