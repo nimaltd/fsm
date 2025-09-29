@@ -77,8 +77,12 @@ while (1)
 /* ===== States ===== */
 void state_idle(void)
 {
-    // stay idle until button event
-    fsm_next(&hFsm, state_idle, 1000);  // re-check after 1s
+    // do ...
+    if ( .... )
+    {
+        // change state to state_calc1
+        fsm_next(&hFsm, state_calc1, 0);
+    }
 }
 
 void state_calc1(void)
