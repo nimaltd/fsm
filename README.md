@@ -49,21 +49,6 @@ Defines library limits and task queue size. Example:
 #define FSM_MAX_TASKS     16    // Max number of queued tasks
 ```  
 
----
-
-## 🛠 CubeMX Setup  
-
-1. **System Tick Timer**  
-   - HAL must have a working SysTick (default in CubeMX).  
-
-2. **GPIO (Optional)**  
-   - Configure a button as **External Interrupt** (e.g., `B1` on `PC13`).  
-
-3. **NVIC**  
-   - Enable EXTI line interrupt in CubeMX for your button pin.  
-
----
-
 ## 🚀 Quick Start  
 
 ### Include header  
@@ -96,20 +81,24 @@ void state_idle(void)
     fsm_next(&hFsm, state_idle, 1000);  // re-check after 1s
 }
 
-void state_button(void)
+void state_calc1(void)
 {
-    // toggle LED on button press
-    HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+    // do ...
+    // set next state after 200 ms
+    fsm_next(&hFsm, state_calc2, 200);
+}
 
-    // go back to idle after 200 ms
-    fsm_next(&hFsm, state_idle, 200);
+void state_calc2(void)
+{
+    // do ...
+    // go back to idle state
+    fsm_next(&hFsm, state_idle, 0);
 }
 
 /* ===== Task Function ===== */
 void button_task(void)
 {
-    // switch FSM to button state
-    fsm_next(&hFsm, state_button, 0);
+     // do ...
 }
 
 /* ===== Interrupt Callback ===== */
