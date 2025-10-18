@@ -10,7 +10,7 @@ It is designed for:
 - Projects where CPU blocking (`HAL_Delay`) must be avoided  
 - Applications that need **clean state handling**  
 - Event-driven systems that use **interrupts** (EXTI, UART, Timers)  
-- Easy portability across STM32 families (F0/F1/F3/F4/F7/G0/G4/H7, etc.)  
+- Easy portability across All STM32 families  
 
 ---
 
