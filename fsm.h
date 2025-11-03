@@ -50,14 +50,20 @@ typedef enum
 typedef struct
 {
   void                (*next_fn)(void);                 /* Pointer to the next state function */
-  void                (*task_fn[FSM_MAX_TASKS])(void);  /* Circular buffer of task functions */
   uint32_t            time;                             /* Internal time counter (ms) */
   uint32_t            delay_ms;                         /* Delay before switching to next state */
-  uint32_t            task_cnt;                         /* Number of tasks in queue */
-  uint32_t            task_head;                        /* Head index of the task queue */
-  uint32_t            task_tail;                        /* Tail index of the task queue */
 
 } fsm_t;
+
+/*************************************************************************************************/
+/* Internal state queue structure */
+typedef struct
+{
+  __IO void           (*fn[FSM_MAX_TASKS])(void);       /* Circular buffer of task functions */
+  __IO uint32_t       head;                             /* Head index of the task queue */
+  __IO uint32_t       tail;                             /* Tail index of the task queue */
+
+} fsm_task_t;
 
 /*************************************************************************************************/
 /** API Functions **/
@@ -75,8 +81,8 @@ void      fsm_next(fsm_t *handle, const void (*next_fn)(void), uint32_t delay_ms
 /* Get internal FSM time */
 uint32_t  fsm_time(fsm_t *handle);
 
-/* Add a task function to FSM task queue */
-fsm_err_t fsm_task_add(fsm_t *handle, const void (*new_task_fn)(void));
+/* Add a task to queue */
+fsm_err_t fsm_task_add(const void (*new_task_fn)(void));
 
 /*************************************************************************************************/
 /** End of File **/
