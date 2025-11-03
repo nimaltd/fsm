@@ -19,7 +19,7 @@ It is designed for:
 - 🔹 Non-blocking **state transitions** with millisecond resolution  
 - 🔹 Built-in **task queue system** for background jobs  
 - 🔹 Works with **interrupt callbacks** (e.g. EXTI, UART, Timer)  
-- 🔹 Fully HAL-compatible (`HAL_GetTick()`)  
+- 🔹 Fully HAL-compatible  
 - 🔹 Small memory footprint, portable C code  
 - 🔹 Simple, clean API  
 
@@ -58,16 +58,16 @@ Defines library limits and task queue size. Example:
 
 ### Define handle  
 ```c
-fsm_t hFsm;
+fsm_t my_fsm;
 ```  
 
 ### Initialize in `main.c`  
 ```c
-fsm_init(&hFsm, state_idle);
+fsm_init(&my_fsm, state_idle);
 
 while (1)
 {
-    fsm_loop(&hFsm);   // must be called frequently
+    fsm_loop(&my_fsm);   // must be called frequently
 }
 ```  
 
@@ -81,7 +81,7 @@ void state_idle(void)
     if ( .... )
     {
         // change state to state_calc1
-        fsm_next(&hFsm, state_calc1, 0);
+        fsm_next(&my_fsm, state_calc1, 0);
     }
 }
 
@@ -90,7 +90,7 @@ void state_calc1(void)
 {
     // do ...
     // set next state after 200 ms
-    fsm_next(&hFsm, state_calc2, 200);
+    fsm_next(&my_fsm, state_calc2, 200);
 }
 
 /* ===== States ===== */
@@ -98,7 +98,7 @@ void state_calc2(void)
 {
     // do ...
     // go back to idle state
-    fsm_next(&hFsm, state_idle, 0);
+    fsm_next(&my_fsm, state_idle, 0);
 }
 
 /* ===== Task Function ===== */
@@ -113,7 +113,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     if (GPIO_Pin == B1_Pin) // User button
     {
         // Schedule FSM task safely from interrupt
-        fsm_task_add(&hFsm, button_task);
+        fsm_task_add(button_task);
     }
 }
 ```
