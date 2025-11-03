@@ -25,6 +25,18 @@
 #include "fsm.h"
 
 /*************************************************************************************************/
+/** Global variables **/
+/*************************************************************************************************/
+
+fsm_task_t fsm_task = { .head = 0, .tail = 0 };
+
+/*************************************************************************************************/
+/** Private function prototype **/
+/*************************************************************************************************/
+
+static void fsm_task_loop(void);
+
+/*************************************************************************************************/
 /** Function Implementations **/
 /*************************************************************************************************/
 
@@ -43,10 +55,9 @@ void fsm_init(fsm_t *handle, const void (*first_fn)(void))
   handle->next_fn = first_fn;
 
   /* Reset all values */
-  handle->task_head = 0;
-  handle->task_tail = 0;
-  handle->task_cnt  = 0;
   handle->delay_ms = 0;
+
+  handle->time = HAL_GetTick();
 }
 
 /*************************************************************************************************/
@@ -60,15 +71,8 @@ void fsm_loop(fsm_t *handle)
   assert_param(handle != NULL);
   assert_param(handle->next_fn != NULL);
 
-  /* If there are pending tasks in the queue, execute the oldest one */
-  if (handle->task_cnt > 0)
-  {
-    /* Run task and Move tail pointer*/
-    handle->task_fn[handle->task_tail]();
-    handle->task_tail = (handle->task_tail + 1) % FSM_MAX_TASKS;
-    handle->task_cnt--;
-    return;
-  }
+  /* Check task queue */
+  fsm_task_loop();
 
   /* Execute current state function if no delay is active */
   if (handle->delay_ms == 0)
@@ -133,28 +137,70 @@ uint32_t fsm_time(fsm_t *handle)
 
 /*************************************************************************************************/
 /**
- * @brief Adds a new task function to the FSM task queue.
- * @param[in,out] handle: Pointer to the FSM handle.
+ * @brief Adds a new task function to the FSM task queue (lock-free, ISR-safe).
  * @param[in] new_task_fn: Pointer to the task function to add to the queue.
  * @return fsm_err_t: Returns FSM_ERR_NONE if successful, FSM_ERR_FULL if queue is full.
  */
-fsm_err_t fsm_task_add(fsm_t *handle, const void (*new_task_fn)(void))
+fsm_err_t fsm_task_add(const void (*new_task_fn)(void))
 {
-  assert_param(handle != NULL);
   assert_param(new_task_fn != NULL);
 
-  /* Check if there is space in the task queue */
-  if (handle->task_cnt < FSM_MAX_TASKS)
-  {
-    /* Add task to queue */
-    handle->task_fn[handle->task_head] = new_task_fn;
-    handle->task_head = (handle->task_head + 1) % FSM_MAX_TASKS;
-    handle->task_cnt++;
-    return FSM_ERR_NONE;
-  }
-  else
+  /* Read the current head index (write position) */
+  uint32_t head = fsm_task.head;
+
+  /* Compute the next head index with wrap-around */
+  uint32_t next_head = (head + 1U) % FSM_MAX_TASKS;
+
+  /* Check if the queue is full */
+  if (next_head == fsm_task.tail)
   {
     return FSM_ERR_FULL;
+  }
+
+  /* Store the new task function in the queue at the current head position */
+  fsm_task.fn[head] = new_task_fn;
+
+  /* Ensures that the write to fn[head] completes and becomes visible
+     *before* the head index is updated */
+  __DMB();
+
+  /* Finally, update the head index to publish the new task to the queue */
+  fsm_task.head = next_head;
+
+  return FSM_ERR_NONE;
+}
+
+/*************************************************************************************************/
+/** Private Function Implementations **/
+/*************************************************************************************************/
+
+/*************************************************************************************************/
+/**
+ * @brief Runs all queued tasks.
+ */
+static void fsm_task_loop(void)
+{
+  /* Check if the task queue is not empty */
+  if (fsm_task.tail != fsm_task.head)
+  {
+    /* Read the current tail index (read position) */
+    uint32_t tail = fsm_task.tail;
+
+    /* Fetch the task function pointer from the queue */
+    void (*task_fn)(void) = fsm_task.fn[tail];
+
+    /* Advance the tail index before executing the task */
+    fsm_task.tail = (tail + 1U) % FSM_MAX_TASKS;
+
+    /* Ensures that the tail update and memory writes are visible to all
+       contexts before continuing */
+    __DMB();
+
+    /* Execute the retrieved task function if it is valid */
+    if (task_fn != NULL)
+    {
+      task_fn();
+    }
   }
 }
 
