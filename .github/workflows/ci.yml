@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Host unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DFSM_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  arm-build:
+    name: Cross compile for Cortex-M
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install arm-none-eabi-gcc
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+
+      # Proves the library builds for the target it is written for, using the
+      # test stubs to stand in for the application's own headers.
+      - name: Compile
+        run: |
+          arm-none-eabi-gcc -c src/fsm.c -o /tmp/fsm.o \
+            -Iinc -Itest/stub \
+            -mcpu=cortex-m4 -mthumb -std=c11 \
+            -Wall -Wextra -Wpedantic -Werror -Os
