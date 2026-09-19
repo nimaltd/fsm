@@ -179,6 +179,12 @@ The function signatures now use `fsm_fn_t` instead of `const void (*)(void)`. Ex
 
 ---
 
+## 🤝 Contributing
+
+Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the style rules and how to run the tests. Nothing to sign, just open a pull request.
+
+---
+
 ## 💖 Support
 
 I write these libraries in my own time and give them away, because good tools should be easy to get. If this one saved you an afternoon, there are two things that genuinely help:
