@@ -1,9 +1,5 @@
-fsm - Finite state machine and task queue for STM32
+fsm
 Copyright 2026 Nima Askari (NimaLTD)
 
 This product includes software developed by Nima Askari (NimaLTD).
 https://github.com/nimaltd
-
-Licensed under the Apache License, Version 2.0. See LICENSE.md for the full
-license text. Section 4(d) of that license requires this notice to be included
-with any distribution of this software or works derived from it.
