@@ -3,10 +3,11 @@
  * @brief       Library configuration used by the host tests.
  * @version     2.0.0
  *
- * @author      Nima Askari - NimaLTD
+ * @author      Nima Askari (NimaLTD)
+ * @email       nima.askari@gmail.com
  * @github      https://www.github.com/nimaltd
  *
- * @copyright   (c) 2026 Nima Askari - NimaLTD
+ * @copyright   (c) 2026 Nima Askari (NimaLTD)
  *              SPDX-License-Identifier: Apache-2.0
  *              See LICENSE.md in the project root for the full license text.
  */

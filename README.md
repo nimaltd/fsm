@@ -147,7 +147,17 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 ## 🧪 Running the tests
 
-The tests run on your PC, not on hardware. Time is faked, so a 200 ms delay is tested instantly.
+The tests run on your PC, not on hardware. Time is faked, so a 200 ms delay is tested instantly. You need cmake and any C compiler, nothing else: [Unity](https://github.com/ThrowTheSwitch/Unity) is vendored into `test/unity/`, so there is nothing to install.
+
+One command does everything:
+
+```bash
+python test/run_tests.py
+```
+
+It configures, builds and runs the suite, then tells you plainly whether it passed. Add `--clean` to start from an empty build folder.
+
+If you prefer doing it by hand:
 
 ```bash
 cmake -S . -B build -DFSM_BUILD_TESTS=ON
@@ -191,3 +201,5 @@ I write these libraries in my own time and give them away, because good tools sh
 Apache License 2.0. See [LICENSE.md](LICENSE.md).
 
 You are free to use this in commercial and closed source products. What the license asks in return is that you keep the copyright notice and pass along the [NOTICE](NOTICE) file, so the credit travels with the code.
+
+The test folder vendors [Unity](https://github.com/ThrowTheSwitch/Unity) under its own MIT license, kept in [test/unity/LICENSE.txt](test/unity/LICENSE.txt). It is only used for testing and is not part of what you flash to a device.

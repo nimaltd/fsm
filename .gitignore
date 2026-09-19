@@ -1,0 +1,11 @@
+# CMake build output
+build/
+cmake-build-*/
+
+# Compiler and editor leftovers
+*.o
+*.obj
+*.a
+*.exe
+.vscode/
+.idea/
