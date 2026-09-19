@@ -25,9 +25,10 @@ It is around 100 lines of actual code, it needs no RTOS, and it works on any STM
 ## 📁 Layout
 
 ```
-inc/    fsm.h and the configuration template
-src/    fsm.c
-test/   host unit tests, run on a PC
+inc/        fsm.h
+src/        fsm.c
+template/   fsm_config.h, the copy you make your own
+test/       host unit tests, run on a PC
 ```
 
 ---
@@ -51,15 +52,15 @@ pip install https://github.com/nimaltd/stm32-installer/archive/refs/heads/main.z
 stm32-install fsm
 ```
 
-Run it from the project root and it asks which folder to use.
+Run it from the project root and it asks which folder to use. The first line is needed once, not once per library.
 
 ### Or copy the files in by hand
 
 1. Copy `inc/fsm.h` into your project's `Core/Inc`
 2. Copy `src/fsm.c` into your project's `Core/Src`
-3. Copy `inc/fsm_config_template.h` into `Core/Inc` and **rename it to `fsm_config.h`**
+3. Copy `template/fsm_config.h` into `Core/Inc`
 
-The template is separate on purpose. Your settings live in your own copy, so pulling a new version of the library never overwrites them.
+The config file sits in its own folder on purpose. Once you have copied it, that copy is yours, so pulling a new version of the library never overwrites your settings.
 
 ### Or use CMake
 
@@ -191,7 +192,7 @@ ctest --test-dir build --output-on-failure
 Nothing in your state functions needs to change, but three things moved:
 
 - The files now live in `inc/` and `src/` instead of the repository root
-- `fsm_config.h` ships as `fsm_config_template.h`. Rename your copy once and it is yours from then on
+- `fsm_config.h` now ships in `template/`. Copy it once and that copy is yours from then on
 - `fsm.h` no longer includes `main.h`. If a file of yours relied on that, include `main.h` yourself
 
 The function signatures now use `fsm_fn_t` instead of `const void (*)(void)`. Existing calls compile unchanged, and the old form produced a warning on some compilers, which this fixes.
