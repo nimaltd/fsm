@@ -1,0 +1,41 @@
+# Read by stm32-installer. See https://github.com/nimaltd/stm32-installer
+#
+# Keep the version in step with the one in the source file headers.
+
+name: fsm
+version: 2.0.0
+description: Finite state machine and task queue for STM32
+repository: https://github.com/nimaltd/fsm
+license: Apache-2.0
+
+# What this library is.
+# kind:     driver, middleware, rtos, protocol, filesystem, utility, bsp
+# category: sensor, storage, display, communication, wireless, rtos, timing,
+#           power, input, math, system
+kind: middleware
+category: system
+
+# Capabilities this library gives other libraries. An RTOS would say [rtos].
+provides: []
+
+# What the project has to offer before this library works.
+requires:
+  libraries: []       # other NimaLTD libraries, by name
+  hal: true           # uses HAL_GetTick
+  cmsis: true         # uses __DMB
+  rtos: none          # none, optional, any, freertos, cmsis-os2, threadx
+  hal_modules: []     # only the core tick is needed, which is always built
+  peripherals: []     # no peripheral of its own
+  c_standard: c11
+
+files:
+  headers:
+    - inc/fsm.h
+  sources:
+    - src/fsm.c
+
+# Copied only when the destination does not already exist, so reinstalling or
+# updating never overwrites settings the user has changed.
+config:
+  - from: inc/fsm_config_template.h
+    to: fsm_config.h

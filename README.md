@@ -34,7 +34,26 @@ test/   host unit tests, run on a PC
 
 ## ⚙️ Installing it
 
-### Copy the files in
+### The easy way
+
+Download this repository into your STM32 project, then from the project root:
+
+```bash
+python fsm/install.py
+```
+
+It flattens the repository into a plain library folder, creates your `fsm_config.h`, and adds the library to your CMake, STM32CubeIDE, Keil or IAR project for you. Your project file is backed up first.
+
+If you would rather not download anything first:
+
+```bash
+pip install https://github.com/nimaltd/stm32-installer/archive/refs/heads/main.zip
+stm32-install fsm
+```
+
+Run it from the project root and it asks which folder to use.
+
+### Or copy the files in by hand
 
 1. Copy `inc/fsm.h` into your project's `Core/Inc`
 2. Copy `src/fsm.c` into your project's `Core/Src`
