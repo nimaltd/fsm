@@ -364,6 +364,14 @@ static void seq_enter(seq_t *handle)
  */
 static void seq_queue_run(void)
 {
+    /* No critical section here, and that is deliberate. Each index has exactly
+       one writer: producers write head, and only this consumer writes tail.
+       Producers write fn[head] while this reads fn[tail], and the always free
+       slot keeps head from ever reaching tail, so they never meet. A producer
+       that interrupts this and reads a tail that has not moved yet simply sees
+       the queue as one fuller than it is, which can refuse a task but cannot
+       corrupt one. Disabling interrupts here would only lengthen interrupt
+       latency. It holds only while seq_loop() has a single caller. */
     if (seq_queue.tail != seq_queue.head)
     {
         uint32_t tail    = seq_queue.tail;

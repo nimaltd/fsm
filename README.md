@@ -184,6 +184,26 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 }
 ```
 
+### What is safe to call from an interrupt
+
+`seq_task_add()`, and nothing else.
+
+Everything else expects to be called from the same place as `seq_loop()`, normally the main loop. `seq_next()` and `seq_stop()` each write several fields of the handle, and an interrupt landing in the middle leaves it half updated, most often with the new state set but not its delay, so it runs immediately instead of waiting. Nothing reports this, and it only happens on the timing where the interrupt lands badly, which is the worst kind of bug to chase.
+
+So changing state from an interrupt looks like this, not like a direct call:
+
+```c
+static void on_button(void)
+{
+    seq_next(&my_seq, state_pressed, 500);   /* main loop, safe */
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    seq_task_add(on_button);                 /* the interrupt only hands over */
+}
+```
+
 ---
 
 ## 🧰 API
@@ -200,7 +220,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 | `uint32_t seq_task_peak(void)` | The most tasks ever queued at once |
 | `void seq_task_flush(void)` | Drop everything queued |
 
-`seq_task_add()` returns `SEQ_ERR_NONE` when the task was queued, or `SEQ_ERR_FULL` when the queue is full.
+`seq_task_add()` returns `SEQ_ERR_NONE` when the task was queued, or `SEQ_ERR_FULL` when the queue is full. It is the only call that is safe from an interrupt, and `seq_loop()` must have a single caller, since two would both consume the queue and could take the same task twice.
 
 Use `seq_task_peak()` to size `SEQ_MAX_TASKS` by measurement. A full queue is reported to the caller, but that caller is usually an interrupt handler where nobody checks a return value, so the peak is in practice the only way to find out you were close to overflowing.
 
