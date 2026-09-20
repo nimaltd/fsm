@@ -34,10 +34,11 @@ files:
   sources:
     - src/seq.c
 
-# Copied only when the destination does not already exist, so reinstalling or
-# updating never overwrites settings the user has changed. It keeps its own
-# name, so there is no "to" to write.
-config:
+# Copied only when it is not already there, so reinstalling or updating never
+# overwrites what the user changed. Usually the configuration header, but the
+# rule is about who owns the file, not about what is in it. Each entry keeps
+# its own name unless a "to" says otherwise.
+once:
   - from: src/seq_config.h
 
 # Copied as they are, alongside the code.
