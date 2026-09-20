@@ -1,5 +1,5 @@
 /**
- * @file        fsm_config.h
+ * @file        fsm_config_template.h
  * @brief       Build time configuration for the fsm library.
  * @version     2.0.0
  *
@@ -14,10 +14,11 @@
  *              SPDX-License-Identifier: Apache-2.0
  *              See LICENSE.md in the project root for the full license text.
  *
- * @note        This is the template. The installer copies it out of template/
- *              once and then leaves your copy alone, so updating the library
- *              never overwrites the settings you changed. Copying it by hand
- *              works the same way.
+ * @note        This is the template. Copy it next to the library as
+ *              "fsm_config.h" and edit that copy, which the installer does for
+ *              you. The name differs from the one fsm.h includes on purpose,
+ *              so the template can sit beside the sources without being picked
+ *              up as a real configuration.
  */
 
 #ifndef FSM_CONFIG_H

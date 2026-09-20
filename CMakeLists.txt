@@ -19,7 +19,7 @@ add_library(fsm STATIC src/fsm.c)
 add_library(nimaltd::fsm ALIAS fsm)
 
 target_include_directories(fsm PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/inc>)
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>)
 
 target_compile_features(fsm PUBLIC c_std_11)
 

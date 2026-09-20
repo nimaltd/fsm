@@ -30,12 +30,21 @@ requires:
 
 files:
   headers:
-    - inc/fsm.h
+    - src/fsm.h
   sources:
     - src/fsm.c
 
-# Everything in template/ is copied only when the destination does not already
-# exist, so reinstalling or updating never overwrites settings the user changed.
-# The file keeps its own name, so there is no "to" to write.
+# Copied only when the destination does not already exist, so reinstalling or
+# updating never overwrites settings the user changed. The name changes on the
+# way in, which is what lets the template live beside the sources without being
+# mistaken for a real configuration.
 config:
-  - from: template/fsm_config.h
+  - from: src/fsm_config_template.h
+    to: fsm_config.h
+
+# Copied as they are, alongside the code.
+extras:
+  - LICENSE.md
+  - NOTICE
+  - README.md
+  - CHANGELOG.md

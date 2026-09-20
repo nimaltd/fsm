@@ -25,11 +25,12 @@ It is around 100 lines of actual code, it needs no RTOS, and it works on any STM
 ## 📁 Layout
 
 ```
-inc/        fsm.h
-src/        fsm.c
-template/   fsm_config.h, the copy you make your own
-test/       host unit tests, run on a PC
+src/    fsm.h, fsm.c, and fsm_config_template.h
+test/   host unit tests, run on a PC
 ```
+
+The template is named apart from the `fsm_config.h` that `fsm.h` includes, so it
+can sit beside the sources without being mistaken for a real configuration.
 
 ---
 
@@ -87,11 +88,11 @@ A branch name or a commit hash works there too, which is useful when you need ex
 
 ### Or copy the files in by hand
 
-1. Copy `inc/fsm.h` into your project's `Core/Inc`
+1. Copy `src/fsm.h` into your project's `Core/Inc`
 2. Copy `src/fsm.c` into your project's `Core/Src`
-3. Copy `template/fsm_config.h` into `Core/Inc`
+3. Copy `src/fsm_config_template.h` into `Core/Inc` and rename it to `fsm_config.h`
 
-The config file sits in its own folder on purpose. Once you have copied it, that copy is yours, so pulling a new version of the library never overwrites your settings.
+The template is named apart from the real file on purpose. Once you have made your copy, that copy is yours, so pulling a new version of the library never overwrites your settings.
 
 ### Or add the whole repository to a CMake build
 
@@ -236,8 +237,8 @@ ctest --test-dir build --output-on-failure
 
 Nothing in your state functions needs to change, but three things moved:
 
-- The files now live in `inc/` and `src/` instead of the repository root
-- `fsm_config.h` now ships in `template/`. Copy it once and that copy is yours from then on
+- The files now live in `src/` instead of the repository root
+- `fsm_config.h` ships as `src/fsm_config_template.h`. Rename your copy once and it is yours from then on
 - `fsm.h` no longer includes `main.h`. If a file of yours relied on that, include `main.h` yourself
 
 The function signatures now use `fsm_fn_t` instead of `const void (*)(void)`. Existing calls compile unchanged, and the old form produced a warning on some compilers, which this fixes.

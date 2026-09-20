@@ -28,10 +28,10 @@ the problem. A failing test is even better, see below.
    handles the mechanical parts:
 
    ```bash
-   clang-format -i src/fsm.c inc/fsm.h
+   clang-format -i src/fsm.c src/fsm.h
    ```
 
-4. Keep the public header free of vendor headers. `inc/fsm.h` includes only
+4. Keep the public header free of vendor headers. `src/fsm.h` includes only
    `<stdint.h>` and `fsm_config.h`, which is what lets the tests run on a PC.
    Anything from the HAL belongs in `src/fsm.c`.
 
