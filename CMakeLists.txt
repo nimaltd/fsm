@@ -8,9 +8,9 @@ project(fsm
 
 option(FSM_BUILD_TESTS "Build the host unit tests" OFF)
 
-# fsm.c needs two headers it does not ship: your fsm_config.h, and the platform
-# main.h. Point FSM_CONFIG_DIR at the folder holding them, normally Core/Inc in
-# a CubeMX project. The tests bring their own, so they set it themselves.
+# fsm.c needs one header it does not ship: the platform main.h. Point
+# FSM_CONFIG_DIR at the folder holding it, normally Core/Inc in a CubeMX
+# project. The tests supply a stub instead.
 if(FSM_BUILD_TESTS AND NOT DEFINED FSM_CONFIG_DIR)
     set(FSM_CONFIG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/test/stub")
 endif()

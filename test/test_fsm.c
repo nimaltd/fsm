@@ -234,9 +234,13 @@ void test_queued_task_runs(void)
  */
 void test_queue_refuses_when_full(void)
 {
-    TEST_ASSERT_EQUAL_INT(FSM_ERR_NONE, fsm_task_add(task_one));
-    TEST_ASSERT_EQUAL_INT(FSM_ERR_NONE, fsm_task_add(task_one));
-    TEST_ASSERT_EQUAL_INT(FSM_ERR_NONE, fsm_task_add(task_one));
+    /* Written against FSM_MAX_TASKS rather than a fixed number, so the tests do
+       not need a configuration of their own just to keep the queue small. */
+    for (uint32_t i = 0U; i < (FSM_MAX_TASKS - 1U); i++)
+    {
+        TEST_ASSERT_EQUAL_INT_MESSAGE(FSM_ERR_NONE, fsm_task_add(task_one),
+                                      "refused a task while the queue had room");
+    }
 
     TEST_ASSERT_EQUAL_INT_MESSAGE(FSM_ERR_FULL, fsm_task_add(task_one),
                                   "accepted more than FSM_MAX_TASKS - 1 tasks");

@@ -203,6 +203,10 @@ uint32_t fsm_time(const fsm_t *handle)
 /**
  * @brief Stop the machine. No state runs until fsm_next() or fsm_init() is called.
  *
+ * Useful for a terminal state, which would otherwise have to keep scheduling
+ * itself just to stay put. Queued tasks still run, because the queue belongs to
+ * the application rather than to any one machine.
+ *
  * @param[in,out] handle  Handle to stop. Must not be NULL.
  */
 void fsm_stop(fsm_t *handle)
@@ -235,6 +239,11 @@ bool fsm_running(const fsm_t *handle)
 /**
  * @brief The most tasks that have ever been queued at once.
  *
+ * There to size FSM_MAX_TASKS by measurement rather than by guessing. A full
+ * queue is reported by fsm_task_add(), but that call is usually made from an
+ * interrupt where nobody checks the result, so this is in practice the only way
+ * to find out the queue ever came close to overflowing.
+ *
  * @return Peak number of queued tasks since reset.
  */
 uint32_t fsm_task_peak(void)
@@ -245,6 +254,9 @@ uint32_t fsm_task_peak(void)
 /*****************************************************************************************************/
 /**
  * @brief Drop every queued task.
+ *
+ * Call it from the main loop, not from an interrupt. It moves the consumer's
+ * end of the queue, which only the main loop is allowed to touch.
  */
 void fsm_task_flush(void)
 {

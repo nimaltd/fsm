@@ -35,12 +35,10 @@ files:
     - src/fsm.c
 
 # Copied only when the destination does not already exist, so reinstalling or
-# updating never overwrites settings the user changed. The name changes on the
-# way in, which is what lets the template live beside the sources without being
-# mistaken for a real configuration.
+# updating never overwrites settings the user has changed. It keeps its own
+# name, so there is no "to" to write.
 config:
-  - from: src/fsm_config_template.h
-    to: fsm_config.h
+  - from: src/fsm_config.h
 
 # Copied as they are, alongside the code.
 extras:
