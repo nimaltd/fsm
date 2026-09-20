@@ -1,23 +1,32 @@
 #!/usr/bin/env python3
 """
-Install this library into your STM32 project.
+Install a NimaLTD library into your STM32 project.
 
-You already downloaded this repository into your project, so there is nothing to
-choose. Running this turns the repository into a plain library folder: the header
-and source move up to the top, a config file is created for you, and everything
-that belongs to the repository rather than to your firmware is removed.
-
-That last part matters. STM32CubeIDE compiles every .c file under your project,
-and this repository ships a test suite with its own main(), which would break
-your build.
+Run it from the root of your project. It works two ways, depending on whether
+this file has a library sitting next to it.
 
     python install.py
+        You downloaded this repository into your project, so the library is
+        already here. Nothing is asked. The repository folder becomes a plain
+        library folder: the header and source move to the top, your config file
+        is created, and everything belonging to the repository rather than your
+        firmware is removed.
 
-Your own fsm_config.h is never overwritten, so this is also how you update.
+        That last part matters. STM32CubeIDE compiles every .c file under your
+        project, and this repository ships a test suite with its own main(),
+        which would break your build.
 
-Nothing is installed on your machine. The installer is fetched into a temporary
-folder, used, and deleted. No pip, no packages, no leftovers, and you always get
-the current version because there is never an old one lying around.
+    python install.py fsm
+        This file is on its own, so the library is fetched from GitHub. You are
+        asked which folder to put it in. Only the files the library actually
+        needs are downloaded.
+
+Your own <library>_config.h is never overwritten, so either form is also how you
+update.
+
+Nothing is installed on your machine. The installer itself is fetched into a
+temporary folder, used, and deleted. No pip, no packages, no leftovers, and you
+always get the current version because there is never an old one lying around.
 """
 
 import io
@@ -32,7 +41,10 @@ from pathlib import Path
 
 MODULE = "stm32_installer"
 SOURCE = "https://github.com/nimaltd/stm32-installer/archive/refs/heads/main.zip"
+MANIFEST = "library.yml"
 TIMEOUT_SECONDS = 30
+
+HERE = Path(__file__).resolve().parent
 
 
 def fetch_to(folder):
@@ -81,8 +93,8 @@ def install_with_pip():
     Last resort: let pip do it, which also pulls in anything else that is needed.
 
     The installer is written to need nothing but Python, so this should never be
-    reached. It is here so that a missing package is something the script solves
-    rather than something it asks you to go and fix.
+    reached. It is here so a missing package is something this solves rather
+    than something it asks you to go and fix.
     """
     print("Falling back to pip ...", flush=True)
 
@@ -96,21 +108,41 @@ def install_with_pip():
     return load()
 
 
-def main():
+def get_installer(staging):
+    """The installer module, however it can be got hold of."""
+    print("Fetching the installer ...", flush=True)
+
+    installer = load(fetch_to(staging))
+
+    if installer is None:
+        # An already installed copy, for a machine that is offline but has had
+        # the installer put there some other way.
+        installer = load()
+
+    if installer is None:
+        installer = install_with_pip()
+
+    return installer
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    beside_a_library = (HERE / MANIFEST).is_file()
+
+    if not beside_a_library and not argv:
+        print(
+            f"There is no {MANIFEST} next to this file, so there is no library here "
+            "to install.\n"
+            "Say which one you want, for example:\n\n"
+            f"    {Path(sys.executable).name} {Path(__file__).name} fsm\n",
+            file=sys.stderr,
+        )
+        return 2
+
     staging = Path(tempfile.mkdtemp(prefix="stm32-install-"))
 
     try:
-        print("Fetching the installer ...", flush=True)
-
-        installer = load(fetch_to(staging))
-
-        if installer is None:
-            # An already installed copy, for a machine that is offline but has
-            # had the installer put there some other way.
-            installer = load()
-
-        if installer is None:
-            installer = install_with_pip()
+        installer = get_installer(staging)
 
         if installer is None:
             print(
@@ -120,7 +152,10 @@ def main():
             )
             return 2
 
-        return installer.main(library_root=Path(__file__).resolve().parent)
+        if beside_a_library and not argv:
+            return installer.main(library_root=HERE)
+
+        return installer.main(argv=argv)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 

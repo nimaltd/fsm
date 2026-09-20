@@ -45,14 +45,24 @@ python fsm/install.py
 
 It flattens the repository into a plain library folder, creates your `fsm_config.h`, and adds the library to your CMake, STM32CubeIDE, Keil or IAR project for you. Your project file is backed up first.
 
-If you would rather not download anything first:
+Nothing is installed on your machine and there is no pip step. The installer is fetched into a temporary folder, used, and deleted.
+
+### Or install it without downloading the repository
+
+From the root of your project:
 
 ```bash
-pip install https://github.com/nimaltd/stm32-installer/archive/refs/heads/main.zip
-stm32-install fsm
+curl -fsSL https://raw.githubusercontent.com/nimaltd/stm32-installer/main/install.py -o install.py
+python install.py fsm
 ```
 
-Run it from the project root and it asks which folder to use. The first line is needed once, not once per library.
+On Windows PowerShell, replace the first line with:
+
+```powershell
+irm https://raw.githubusercontent.com/nimaltd/stm32-installer/main/install.py -OutFile install.py
+```
+
+It asks which folder to use and downloads only the files the library actually needs, not the whole repository. The same `install.py` installs any of the libraries, so `python install.py spif` works too.
 
 ### Or copy the files in by hand
 
