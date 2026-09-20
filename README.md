@@ -62,15 +62,21 @@ Run it from the project root and it asks which folder to use. The first line is 
 
 The config file sits in its own folder on purpose. Once you have copied it, that copy is yours, so pulling a new version of the library never overwrites your settings.
 
-### Or use CMake
+### Or add the whole repository to a CMake build
+
+If you keep this repository as a submodule rather than installing it:
 
 ```cmake
 add_subdirectory(fsm)
 target_link_libraries(your_app PRIVATE nimaltd::fsm)
 
-# fsm.c needs your fsm_config.h and your main.h, which normally live together.
+# This line is needed because the target above is a static library, which does
+# not inherit your application's include paths, and fsm.c has to find your
+# fsm_config.h and your main.h.
 target_include_directories(fsm PRIVATE ${CMAKE_SOURCE_DIR}/Core/Inc)
 ```
+
+`python install.py` avoids that last line entirely: it writes an INTERFACE target instead, whose sources compile as part of your own target and inherit everything it has.
 
 ---
 
