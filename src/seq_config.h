@@ -1,6 +1,6 @@
 /**
- * @file        fsm_config.h
- * @brief       Build time configuration for the fsm library.
+ * @file        seq_config.h
+ * @brief       Build time configuration for the sequencer library.
  * @version     2.0.0
  *
  * @author      Nima Askari (NimaLTD)
@@ -19,8 +19,8 @@
  *              overwrite a setting you changed.
  */
 
-#ifndef FSM_CONFIG_H
-#define FSM_CONFIG_H
+#ifndef SEQ_CONFIG_H
+#define SEQ_CONFIG_H
 
 /*
  * ****************************************************************************************************
@@ -28,13 +28,13 @@
  * ****************************************************************************************************
 */
 
-/* USER CODE BEGIN FSM_CONFIGURATION */
+/* USER CODE BEGIN SEQ_CONFIGURATION */
 
 /* Slots in the task queue. One slot is always kept free so a full queue can be
-   told apart from an empty one, so the queue holds FSM_MAX_TASKS - 1 tasks.
+   told apart from an empty one, so the queue holds SEQ_MAX_TASKS - 1 tasks.
    Must be at least 2. */
-#define FSM_MAX_TASKS       16U
+#define SEQ_MAX_TASKS       16U
 
-/* USER CODE END FSM_CONFIGURATION */
+/* USER CODE END SEQ_CONFIGURATION */
 
-#endif /* FSM_CONFIG_H */
+#endif /* SEQ_CONFIG_H */

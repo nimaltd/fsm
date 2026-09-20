@@ -33,7 +33,7 @@ jobs:
       # test stubs to stand in for the application's own headers.
       - name: Compile
         run: |
-          arm-none-eabi-gcc -c src/fsm.c -o /tmp/fsm.o \
+          arm-none-eabi-gcc -c src/seq.c -o /tmp/seq.o \
             -Iinc -Itest/stub \
             -mcpu=cortex-m4 -mthumb -std=c11 \
             -Wall -Wextra -Wpedantic -Werror -Os

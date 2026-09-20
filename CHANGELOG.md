@@ -5,21 +5,38 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [2.0.0] - 2026-09-20
 
+### Changed
+
+- **Renamed from `fsm` to `sequencer`.** The old name promised a finite state
+  machine, and this is not one: there is no declared set of states, no events,
+  and no transition table. It is a non blocking sequencer for callbacks with
+  delays, plus a task queue for interrupts, and the name now says so.
+- Every public name changes with it, so code written against `fsm` will not
+  compile until it is updated. The mapping is one for one:
+
+  | Was | Is now |
+  |---|---|
+  | `fsm.h`, `fsm.c`, `fsm_config.h` | `seq.h`, `seq.c`, `seq_config.h` |
+  | `fsm_t`, `fsm_fn_t`, `fsm_err_t` | `seq_t`, `seq_fn_t`, `seq_err_t` |
+  | `fsm_init`, `fsm_loop`, `fsm_next`, `fsm_time` | `seq_init`, `seq_loop`, `seq_next`, `seq_time` |
+  | `fsm_task_add` | `seq_task_add` |
+  | `FSM_MAX_TASKS`, `FSM_ERR_NONE`, `FSM_ERR_FULL` | `SEQ_MAX_TASKS`, `SEQ_ERR_NONE`, `SEQ_ERR_FULL` |
+
+  A find and replace of `fsm_` to `seq_` and `FSM_` to `SEQ_` covers all of it.
+
+- Sources moved to `src/`, flat, with the configuration beside them.
+- `seq.h` no longer includes `main.h`. Include it yourself if you relied on that.
+- State functions take `seq_fn_t` instead of `const void (*)(void)`.
+- Licence changed to Apache-2.0.
+
 ### Added
 
-- `fsm_stop()` and `fsm_running()`, to halt a machine and ask whether it is halted.
-- `fsm_task_peak()` and `fsm_task_flush()`, to size `FSM_MAX_TASKS` by measurement and to drop queued work.
+- `seq_stop()` and `seq_running()`, to halt a sequence and ask whether it is halted.
+- `seq_task_peak()` and `seq_task_flush()`, to size `SEQ_MAX_TASKS` by measurement and to drop queued work.
 - Host unit tests, run with `python test/run_tests.py`.
 - CMake build, and `install.py` to install the library into a project.
 
-### Changed
-
-- Sources moved to `inc/` and `src/`, and the configuration template to `template/`.
-- `fsm.h` no longer includes `main.h`. Include it yourself if you relied on that.
-- State functions take `fsm_fn_t` instead of `const void (*)(void)`. Existing calls compile unchanged.
-- Licence changed to Apache-2.0.
-
 ### Fixed
 
-- `fsm_time()` returned zero inside a running state, so every timeout built on it silently never fired.
-- A queued task could be lost when two interrupts called `fsm_task_add()` at the same moment. `FSM_ERR_NONE` was returned for both.
+- `seq_time()` returned zero inside a running state, so every timeout built on it silently never fired.
+- A queued task could be lost when two interrupts called `seq_task_add()` at the same moment. `SEQ_ERR_NONE` was returned for both.

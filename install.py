@@ -5,7 +5,7 @@ Install a NimaLTD library into your STM32 project.
 Run it from the root of your project. It works two ways, depending on whether
 this file has a library sitting next to it.
 
-    python fsm/install.py
+    python sequencer/install.py
         You downloaded this repository into your project, so the library is
         already here. Nothing is asked. The repository folder becomes a plain
         library folder: the header and source move to the top, your config file
@@ -50,7 +50,7 @@ from pathlib import Path
 # else's account works by changing this one line. A full GitHub URL works too.
 # The copy in the stm32-installer repository leaves LIBRARY as None, because
 # that one is not tied to any particular library.
-LIBRARY = "nimaltd/fsm"
+LIBRARY = "nimaltd/sequencer"
 BRANCH = "master"
 
 # Where the installer itself comes from. Anyone maintaining their own libraries
@@ -203,7 +203,7 @@ def main(argv=None):
             f"There is no {MANIFEST} next to this file, so there is no library here "
             "to install.\n"
             "Say which one you want, for example:\n\n"
-            f"    python {Path(__file__).name} fsm\n",
+            f"    python {Path(__file__).name} nimaltd/spif\n",
             file=sys.stderr,
         )
         return 2

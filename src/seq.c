@@ -1,6 +1,6 @@
 /**
- * @file        fsm.c
- * @brief       Finite state machine and task queue for STM32.
+ * @file        seq.c
+ * @brief       Non blocking state sequencer and interrupt task queue for STM32.
  * @version     2.0.0
  *
  * @author      Nima Askari (NimaLTD)
@@ -21,7 +21,7 @@
  * ****************************************************************************************************
 */
 
-#include "fsm.h"
+#include "seq.h"
 
 #include <stddef.h>
 
@@ -29,8 +29,8 @@
 
 /* A place for the tests to simulate a higher priority interrupt arriving at the
    worst possible moment. Nothing is generated unless the tests define it. */
-#ifndef FSM_TEST_HOOK
-#define FSM_TEST_HOOK() do { } while (0)
+#ifndef SEQ_TEST_HOOK
+#define SEQ_TEST_HOOK() do { } while (0)
 #endif
 
 /*
@@ -45,12 +45,12 @@
  */
 typedef struct
 {
-    __IO fsm_fn_t fn[FSM_MAX_TASKS]; /**< Circular buffer of queued tasks. */
+    __IO seq_fn_t fn[SEQ_MAX_TASKS]; /**< Circular buffer of queued tasks. */
     __IO uint32_t head;              /**< Slot the producer writes next.   */
     __IO uint32_t tail;              /**< Slot the consumer reads next.    */
     __IO uint32_t peak;              /**< Deepest the queue has ever been. */
 
-} fsm_queue_t;
+} seq_queue_t;
 
 /*
  * ****************************************************************************************************
@@ -60,7 +60,7 @@ typedef struct
 
 /* Static storage is zero initialized by the language, which is exactly the
    empty queue, so spelling out an initializer here would add nothing. */
-static fsm_queue_t fsm_queue;
+static seq_queue_t seq_queue;
 
 /*
  * ****************************************************************************************************
@@ -72,13 +72,13 @@ static fsm_queue_t fsm_queue;
 /**
  * @brief Restart the clock if this is the first run of a new state.
  */
-static void fsm_enter(fsm_t *handle);
+static void seq_enter(seq_t *handle);
 
 /*****************************************************************************************************/
 /**
  * @brief Run one queued task if the queue is not empty.
  */
-static void fsm_queue_run(void);
+static void seq_queue_run(void);
 
 /*
  * ****************************************************************************************************
@@ -90,12 +90,12 @@ static void fsm_queue_run(void);
 /**
  * @brief Initialize a handle and set the state it starts from.
  *
- * The machine runs first_fn on the next call to fsm_loop(), with no delay.
+ * The machine runs first_fn on the next call to seq_loop(), with no delay.
  *
  * @param[out] handle    Handle to initialize. Must not be NULL.
  * @param[in]  first_fn  State function to start from. Must not be NULL.
  */
-void fsm_init(fsm_t *handle, fsm_fn_t first_fn)
+void seq_init(seq_t *handle, seq_fn_t first_fn)
 {
     assert_param(handle != NULL);
     assert_param(first_fn != NULL);
@@ -119,19 +119,19 @@ void fsm_init(fsm_t *handle, fsm_fn_t first_fn)
  *
  * @param[in,out] handle  Handle to run. Must not be NULL.
  */
-void fsm_loop(fsm_t *handle)
+void seq_loop(seq_t *handle)
 {
     assert_param(handle != NULL);
 
     if (handle != NULL)
     {
-        fsm_queue_run();
+        seq_queue_run();
 
         if (handle->next_fn != NULL)
         {
             if (handle->delay_ms == 0U)
             {
-                fsm_enter(handle);
+                seq_enter(handle);
                 handle->next_fn();
             }
             else if ((HAL_GetTick() - handle->time) >= handle->delay_ms)
@@ -139,7 +139,7 @@ void fsm_loop(fsm_t *handle)
                 /* Clear the delay before the state runs, so the state itself is
                    free to ask for a new one. */
                 handle->delay_ms = 0U;
-                fsm_enter(handle);
+                seq_enter(handle);
                 handle->next_fn();
             }
             else
@@ -155,13 +155,13 @@ void fsm_loop(fsm_t *handle)
  * @brief Choose the next state, optionally after a delay.
  *
  * The delay is measured from this call, not from when the current state
- * returns. A delay of zero runs the next state on the following fsm_loop().
+ * returns. A delay of zero runs the next state on the following seq_loop().
  *
  * @param[in,out] handle    Handle to update. Must not be NULL.
  * @param[in]     next_fn   State function to run next. Must not be NULL.
  * @param[in]     delay_ms  Milliseconds to wait before running next_fn.
  */
-void fsm_next(fsm_t *handle, fsm_fn_t next_fn, uint32_t delay_ms)
+void seq_next(seq_t *handle, seq_fn_t next_fn, uint32_t delay_ms)
 {
     assert_param(handle != NULL);
     assert_param(next_fn != NULL);
@@ -185,7 +185,7 @@ void fsm_next(fsm_t *handle, fsm_fn_t next_fn, uint32_t delay_ms)
  * @param[in] handle  Handle to read. Must not be NULL.
  * @return Milliseconds since the current state was entered, or 0 if handle is NULL.
  */
-uint32_t fsm_time(const fsm_t *handle)
+uint32_t seq_time(const seq_t *handle)
 {
     uint32_t elapsed = 0U;
 
@@ -201,7 +201,7 @@ uint32_t fsm_time(const fsm_t *handle)
 
 /*****************************************************************************************************/
 /**
- * @brief Stop the machine. No state runs until fsm_next() or fsm_init() is called.
+ * @brief Stop the machine. No state runs until seq_next() or seq_init() is called.
  *
  * Useful for a terminal state, which would otherwise have to keep scheduling
  * itself just to stay put. Queued tasks still run, because the queue belongs to
@@ -209,7 +209,7 @@ uint32_t fsm_time(const fsm_t *handle)
  *
  * @param[in,out] handle  Handle to stop. Must not be NULL.
  */
-void fsm_stop(fsm_t *handle)
+void seq_stop(seq_t *handle)
 {
     assert_param(handle != NULL);
 
@@ -226,9 +226,9 @@ void fsm_stop(fsm_t *handle)
  * @brief Whether the machine has a state to run.
  *
  * @param[in] handle  Handle to read. Must not be NULL.
- * @return true while a state is scheduled, false after fsm_stop().
+ * @return true while a state is scheduled, false after seq_stop().
  */
-bool fsm_running(const fsm_t *handle)
+bool seq_running(const seq_t *handle)
 {
     assert_param(handle != NULL);
 
@@ -239,16 +239,16 @@ bool fsm_running(const fsm_t *handle)
 /**
  * @brief The most tasks that have ever been queued at once.
  *
- * There to size FSM_MAX_TASKS by measurement rather than by guessing. A full
- * queue is reported by fsm_task_add(), but that call is usually made from an
+ * There to size SEQ_MAX_TASKS by measurement rather than by guessing. A full
+ * queue is reported by seq_task_add(), but that call is usually made from an
  * interrupt where nobody checks the result, so this is in practice the only way
  * to find out the queue ever came close to overflowing.
  *
  * @return Peak number of queued tasks since reset.
  */
-uint32_t fsm_task_peak(void)
+uint32_t seq_task_peak(void)
 {
-    return fsm_queue.peak;
+    return seq_queue.peak;
 }
 
 /*****************************************************************************************************/
@@ -258,12 +258,12 @@ uint32_t fsm_task_peak(void)
  * Call it from the main loop, not from an interrupt. It moves the consumer's
  * end of the queue, which only the main loop is allowed to touch.
  */
-void fsm_task_flush(void)
+void seq_task_flush(void)
 {
     uint32_t primask = __get_PRIMASK();
     __disable_irq();
 
-    fsm_queue.tail = fsm_queue.head;
+    seq_queue.tail = seq_queue.head;
 
     __set_PRIMASK(primask);
 }
@@ -272,16 +272,16 @@ void fsm_task_flush(void)
 /**
  * @brief Add a task to the queue.
  *
- * Safe to call from an interrupt. The task runs later, from fsm_loop(), which
+ * Safe to call from an interrupt. The task runs later, from seq_loop(), which
  * is what keeps the interrupt handler short.
  *
  * @param[in] task_fn  Task to queue. Must not be NULL.
- * @return FSM_ERR_NONE if the task was queued, FSM_ERR_FULL if the queue is
+ * @return SEQ_ERR_NONE if the task was queued, SEQ_ERR_FULL if the queue is
  *         full or task_fn is NULL.
  */
-fsm_err_t fsm_task_add(fsm_fn_t task_fn)
+seq_err_t seq_task_add(seq_fn_t task_fn)
 {
-    fsm_err_t err = FSM_ERR_FULL;
+    seq_err_t err = SEQ_ERR_FULL;
 
     assert_param(task_fn != NULL);
 
@@ -296,30 +296,30 @@ fsm_err_t fsm_task_add(fsm_fn_t task_fn)
         __disable_irq();
 
         {
-            uint32_t head      = fsm_queue.head;
-            uint32_t next_head = (head + 1U) % FSM_MAX_TASKS;
+            uint32_t head      = seq_queue.head;
+            uint32_t next_head = (head + 1U) % SEQ_MAX_TASKS;
 
-            FSM_TEST_HOOK();
+            SEQ_TEST_HOOK();
 
             /* Leaving one slot free is what lets a full queue be told apart
                from an empty one, since both would otherwise have head == tail. */
-            if (next_head != fsm_queue.tail)
+            if (next_head != seq_queue.tail)
             {
-                fsm_queue.fn[head] = task_fn;
+                seq_queue.fn[head] = task_fn;
 
                 /* The slot has to be visible before head publishes it, or the
                    main loop can read a stale pointer out of it. */
                 __DMB();
 
-                fsm_queue.head = next_head;
-                err            = FSM_ERR_NONE;
+                seq_queue.head = next_head;
+                err            = SEQ_ERR_NONE;
 
                 {
-                    uint32_t depth = (next_head + FSM_MAX_TASKS - fsm_queue.tail) % FSM_MAX_TASKS;
+                    uint32_t depth = (next_head + SEQ_MAX_TASKS - seq_queue.tail) % SEQ_MAX_TASKS;
 
-                    if (depth > fsm_queue.peak)
+                    if (depth > seq_queue.peak)
                     {
-                        fsm_queue.peak = depth;
+                        seq_queue.peak = depth;
                     }
                 }
             }
@@ -341,12 +341,12 @@ fsm_err_t fsm_task_add(fsm_fn_t task_fn)
 /**
  * @brief Restart the clock if this is the first run of a new state.
  *
- * The clock must not restart on every pass, or fsm_time() would sit at zero for
+ * The clock must not restart on every pass, or seq_time() would sit at zero for
  * a state that runs on every loop, and every timeout built on it would be dead.
  *
  * @param[in,out] handle  Handle being run.
  */
-static void fsm_enter(fsm_t *handle)
+static void seq_enter(seq_t *handle)
 {
     if (handle->entering != 0U)
     {
@@ -360,18 +360,18 @@ static void fsm_enter(fsm_t *handle)
  * @brief Run one queued task if the queue is not empty.
  *
  * Only one task runs per call. That keeps a burst of queued work from starving
- * the state machine, since fsm_loop() gets to run a state in between.
+ * the state machine, since seq_loop() gets to run a state in between.
  */
-static void fsm_queue_run(void)
+static void seq_queue_run(void)
 {
-    if (fsm_queue.tail != fsm_queue.head)
+    if (seq_queue.tail != seq_queue.head)
     {
-        uint32_t tail    = fsm_queue.tail;
-        fsm_fn_t task_fn = fsm_queue.fn[tail];
+        uint32_t tail    = seq_queue.tail;
+        seq_fn_t task_fn = seq_queue.fn[tail];
 
         /* Release the slot before running the task, so the task is free to
            queue another one without hitting a queue that is falsely full. */
-        fsm_queue.tail = (tail + 1U) % FSM_MAX_TASKS;
+        seq_queue.tail = (tail + 1U) % SEQ_MAX_TASKS;
 
         __DMB();
 

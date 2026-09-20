@@ -2,10 +2,10 @@
 #
 # Keep the version in step with the one in the source file headers.
 
-name: fsm
+name: sequencer
 version: 2.0.0
-description: Finite state machine and task queue for STM32
-repository: https://github.com/nimaltd/fsm
+description: Non blocking state sequencer and interrupt task queue for STM32
+repository: https://github.com/nimaltd/sequencer
 license: Apache-2.0
 
 # What this library is.
@@ -30,15 +30,15 @@ requires:
 
 files:
   headers:
-    - src/fsm.h
+    - src/seq.h
   sources:
-    - src/fsm.c
+    - src/seq.c
 
 # Copied only when the destination does not already exist, so reinstalling or
 # updating never overwrites settings the user has changed. It keeps its own
 # name, so there is no "to" to write.
 config:
-  - from: src/fsm_config.h
+  - from: src/seq_config.h
 
 # Copied as they are, alongside the code.
 extras:

@@ -1,6 +1,6 @@
 /**
- * @file        test_fsm.c
- * @brief       Host unit tests for the fsm library, built on Unity.
+ * @file        test_seq.c
+ * @brief       Host unit tests for the sequencer library, built on Unity.
  * @version     2.0.0
  *
  * @author      Nima Askari (NimaLTD)
@@ -27,7 +27,7 @@
 
 #include "unity.h"
 
-#include "fsm.h"
+#include "seq.h"
 #include "main.h"
 
 /*
@@ -42,14 +42,14 @@ static int      state_b_calls  = 0;
 static int      task_calls     = 0;
 static int      task_two_calls = 0;
 
-static fsm_t    test_fsm;
+static seq_t    test_seq;
 
 /* Set by a test to have the fake interrupt queue this, once, from inside
-   fsm_task_add. NULL means no interrupt arrives. */
-static fsm_fn_t queue_preempt_with = NULL;
+   seq_task_add. NULL means no interrupt arrives. */
+static seq_fn_t queue_preempt_with = NULL;
 
 /* Stands in for the real PRIMASK. Zero means interrupts are enabled. */
-int fsm_test_primask = 0;
+int seq_test_primask = 0;
 
 /*
  * ****************************************************************************************************
@@ -120,7 +120,7 @@ uint32_t HAL_GetTick(void)
 /**
  * @brief Put the library back to a known state before every test.
  *
- * The task queue lives in a file scope variable inside fsm.c, so anything a
+ * The task queue lives in a file scope variable inside seq.c, so anything a
  * previous test left queued would otherwise leak into the next one.
  */
 void setUp(void)
@@ -135,7 +135,7 @@ void setUp(void)
     task_calls         = 0;
     task_two_calls     = 0;
     queue_preempt_with = NULL;
-    fsm_test_primask   = 0;
+    seq_test_primask   = 0;
 }
 
 /*****************************************************************************************************/
@@ -153,8 +153,8 @@ void tearDown(void)
 void test_init_runs_first_state(void)
 {
     test_tick = 100U;
-    fsm_init(&test_fsm, state_a);
-    fsm_loop(&test_fsm);
+    seq_init(&test_seq, state_a);
+    seq_loop(&test_seq);
 
     TEST_ASSERT_EQUAL_INT(1, state_a_calls);
 }
@@ -166,18 +166,18 @@ void test_init_runs_first_state(void)
 void test_next_waits_for_the_delay(void)
 {
     test_tick = 1000U;
-    fsm_init(&test_fsm, state_a);
-    fsm_next(&test_fsm, state_b, 200U);
+    seq_init(&test_seq, state_a);
+    seq_next(&test_seq, state_b, 200U);
 
-    fsm_loop(&test_fsm);
+    seq_loop(&test_seq);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, state_b_calls, "ran before the delay started");
 
     test_tick = 1199U;
-    fsm_loop(&test_fsm);
+    seq_loop(&test_seq);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, state_b_calls, "ran one millisecond early");
 
     test_tick = 1200U;
-    fsm_loop(&test_fsm);
+    seq_loop(&test_seq);
     TEST_ASSERT_EQUAL_INT_MESSAGE(1, state_b_calls, "did not run when the delay expired");
 }
 
@@ -188,13 +188,13 @@ void test_next_waits_for_the_delay(void)
 void test_delay_clears_after_running(void)
 {
     test_tick = 1000U;
-    fsm_init(&test_fsm, state_a);
-    fsm_next(&test_fsm, state_b, 200U);
+    seq_init(&test_seq, state_a);
+    seq_next(&test_seq, state_b, 200U);
 
     test_tick = 1200U;
-    fsm_loop(&test_fsm);
+    seq_loop(&test_seq);
     test_tick = 1201U;
-    fsm_loop(&test_fsm);
+    seq_loop(&test_seq);
 
     TEST_ASSERT_EQUAL_INT(2, state_b_calls);
 }
@@ -206,11 +206,11 @@ void test_delay_clears_after_running(void)
 void test_time_counts_from_state_entry(void)
 {
     test_tick = 500U;
-    fsm_init(&test_fsm, state_a);
+    seq_init(&test_seq, state_a);
 
     test_tick = 650U;
 
-    TEST_ASSERT_EQUAL_UINT32(150U, fsm_time(&test_fsm));
+    TEST_ASSERT_EQUAL_UINT32(150U, seq_time(&test_seq));
 }
 
 /*****************************************************************************************************/
@@ -219,31 +219,31 @@ void test_time_counts_from_state_entry(void)
  */
 void test_queued_task_runs(void)
 {
-    fsm_init(&test_fsm, state_a);
+    seq_init(&test_seq, state_a);
 
-    TEST_ASSERT_EQUAL_INT(FSM_ERR_NONE, fsm_task_add(task_one));
+    TEST_ASSERT_EQUAL_INT(SEQ_ERR_NONE, seq_task_add(task_one));
 
-    fsm_loop(&test_fsm);
+    seq_loop(&test_seq);
 
     TEST_ASSERT_EQUAL_INT(1, task_calls);
 }
 
 /*****************************************************************************************************/
 /**
- * @brief The queue holds FSM_MAX_TASKS - 1 tasks, then refuses more.
+ * @brief The queue holds SEQ_MAX_TASKS - 1 tasks, then refuses more.
  */
 void test_queue_refuses_when_full(void)
 {
-    /* Written against FSM_MAX_TASKS rather than a fixed number, so the tests do
+    /* Written against SEQ_MAX_TASKS rather than a fixed number, so the tests do
        not need a configuration of their own just to keep the queue small. */
-    for (uint32_t i = 0U; i < (FSM_MAX_TASKS - 1U); i++)
+    for (uint32_t i = 0U; i < (SEQ_MAX_TASKS - 1U); i++)
     {
-        TEST_ASSERT_EQUAL_INT_MESSAGE(FSM_ERR_NONE, fsm_task_add(task_one),
+        TEST_ASSERT_EQUAL_INT_MESSAGE(SEQ_ERR_NONE, seq_task_add(task_one),
                                       "refused a task while the queue had room");
     }
 
-    TEST_ASSERT_EQUAL_INT_MESSAGE(FSM_ERR_FULL, fsm_task_add(task_one),
-                                  "accepted more than FSM_MAX_TASKS - 1 tasks");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(SEQ_ERR_FULL, seq_task_add(task_one),
+                                  "accepted more than SEQ_MAX_TASKS - 1 tasks");
 }
 
 /*****************************************************************************************************/
@@ -252,22 +252,22 @@ void test_queue_refuses_when_full(void)
  */
 void test_one_task_runs_per_loop(void)
 {
-    fsm_init(&test_fsm, state_a);
+    seq_init(&test_seq, state_a);
 
-    (void)fsm_task_add(task_one);
-    (void)fsm_task_add(task_one);
-    (void)fsm_task_add(task_one);
+    (void)seq_task_add(task_one);
+    (void)seq_task_add(task_one);
+    (void)seq_task_add(task_one);
 
-    fsm_loop(&test_fsm);
+    seq_loop(&test_seq);
     TEST_ASSERT_EQUAL_INT(1, task_calls);
 
-    fsm_loop(&test_fsm);
+    seq_loop(&test_seq);
     TEST_ASSERT_EQUAL_INT(2, task_calls);
 
-    fsm_loop(&test_fsm);
+    seq_loop(&test_seq);
     TEST_ASSERT_EQUAL_INT(3, task_calls);
 
-    fsm_loop(&test_fsm);
+    seq_loop(&test_seq);
     TEST_ASSERT_EQUAL_INT_MESSAGE(3, task_calls, "ran a task that was never queued");
 }
 
@@ -277,12 +277,12 @@ void test_one_task_runs_per_loop(void)
  */
 void test_queue_wraps_around(void)
 {
-    fsm_init(&test_fsm, state_a);
+    seq_init(&test_seq, state_a);
 
     for (int i = 0; i < 20; i++)
     {
-        TEST_ASSERT_EQUAL_INT(FSM_ERR_NONE, fsm_task_add(task_one));
-        fsm_loop(&test_fsm);
+        TEST_ASSERT_EQUAL_INT(SEQ_ERR_NONE, seq_task_add(task_one));
+        seq_loop(&test_seq);
     }
 
     TEST_ASSERT_EQUAL_INT(20, task_calls);
@@ -294,12 +294,12 @@ void test_queue_wraps_around(void)
  */
 void test_null_arguments_are_refused(void)
 {
-    TEST_ASSERT_EQUAL_INT(FSM_ERR_FULL, fsm_task_add(NULL));
-    TEST_ASSERT_EQUAL_UINT32(0U, fsm_time(NULL));
+    TEST_ASSERT_EQUAL_INT(SEQ_ERR_FULL, seq_task_add(NULL));
+    TEST_ASSERT_EQUAL_UINT32(0U, seq_time(NULL));
 
-    fsm_init(NULL, state_a);
-    fsm_loop(NULL);
-    fsm_next(NULL, state_a, 0U);
+    seq_init(NULL, state_a);
+    seq_loop(NULL);
+    seq_next(NULL, state_a, 0U);
 
     TEST_ASSERT_EQUAL_INT(0, state_a_calls);
 }
@@ -315,15 +315,15 @@ void test_null_arguments_are_refused(void)
 void test_time_grows_while_a_state_runs(void)
 {
     test_tick = 1000U;
-    fsm_init(&test_fsm, state_a);
+    seq_init(&test_seq, state_a);
 
     for (uint32_t i = 0U; i < 5000U; i++)
     {
-        fsm_loop(&test_fsm);
+        seq_loop(&test_seq);
         test_tick++;
     }
 
-    TEST_ASSERT_EQUAL_UINT32_MESSAGE(5000U, fsm_time(&test_fsm),
+    TEST_ASSERT_EQUAL_UINT32_MESSAGE(5000U, seq_time(&test_seq),
                                      "time in state stopped counting once the state ran");
 }
 
@@ -338,11 +338,11 @@ void test_a_timeout_actually_fires(void)
     uint32_t fired_at = 0U;
 
     test_tick = 0U;
-    fsm_init(&test_fsm, state_waits_then_times_out);
+    seq_init(&test_seq, state_waits_then_times_out);
 
     for (uint32_t i = 0U; i < 6000U; i++)
     {
-        fsm_loop(&test_fsm);
+        seq_loop(&test_seq);
 
         if ((state_b_calls > 0) && (fired_at == 0U))
         {
@@ -363,44 +363,44 @@ void test_a_timeout_actually_fires(void)
 void test_time_restarts_on_a_real_transition(void)
 {
     test_tick = 1000U;
-    fsm_init(&test_fsm, state_a);
-    fsm_loop(&test_fsm);
+    seq_init(&test_seq, state_a);
+    seq_loop(&test_seq);
 
     test_tick = 1500U;
-    fsm_loop(&test_fsm);
-    TEST_ASSERT_EQUAL_UINT32_MESSAGE(500U, fsm_time(&test_fsm),
+    seq_loop(&test_seq);
+    TEST_ASSERT_EQUAL_UINT32_MESSAGE(500U, seq_time(&test_seq),
                                      "time should keep counting inside one state");
 
-    fsm_next(&test_fsm, state_b, 0U);
+    seq_next(&test_seq, state_b, 0U);
 
     test_tick = 1600U;
-    fsm_loop(&test_fsm);
-    TEST_ASSERT_EQUAL_UINT32_MESSAGE(0U, fsm_time(&test_fsm),
+    seq_loop(&test_seq);
+    TEST_ASSERT_EQUAL_UINT32_MESSAGE(0U, seq_time(&test_seq),
                                      "time should start again on entering a new state");
 
     test_tick = 1700U;
-    TEST_ASSERT_EQUAL_UINT32(100U, fsm_time(&test_fsm));
+    TEST_ASSERT_EQUAL_UINT32(100U, seq_time(&test_seq));
 }
 
 /*****************************************************************************************************/
 /**
  * @brief A delay is time spent waiting to enter, not time spent in the state.
  *
- * So a state scheduled with fsm_next(..., 200) sees an elapsed time of zero on
+ * So a state scheduled with seq_next(..., 200) sees an elapsed time of zero on
  * its first run, not two hundred.
  */
 void test_a_delay_does_not_count_as_time_in_the_state(void)
 {
     test_tick = 1000U;
-    fsm_init(&test_fsm, state_a);
-    fsm_loop(&test_fsm);
+    seq_init(&test_seq, state_a);
+    seq_loop(&test_seq);
 
-    fsm_next(&test_fsm, state_b, 200U);
+    seq_next(&test_seq, state_b, 200U);
 
     test_tick = 1200U;
-    fsm_loop(&test_fsm);
+    seq_loop(&test_seq);
 
-    TEST_ASSERT_EQUAL_UINT32(0U, fsm_time(&test_fsm));
+    TEST_ASSERT_EQUAL_UINT32(0U, seq_time(&test_seq));
 }
 
 /*****************************************************************************************************/
@@ -416,15 +416,15 @@ void test_two_interrupts_do_not_lose_a_task(void)
 {
     queue_preempt_with = task_two;
 
-    TEST_ASSERT_EQUAL_INT(FSM_ERR_NONE, fsm_task_add(task_one));
+    TEST_ASSERT_EQUAL_INT(SEQ_ERR_NONE, seq_task_add(task_one));
 
     queue_preempt_with = NULL;
 
-    fsm_init(&test_fsm, state_noop);
+    seq_init(&test_seq, state_noop);
 
-    for (uint32_t i = 0U; i < (FSM_MAX_TASKS + 2U); i++)
+    for (uint32_t i = 0U; i < (SEQ_MAX_TASKS + 2U); i++)
     {
-        fsm_loop(&test_fsm);
+        seq_loop(&test_seq);
     }
 
     TEST_ASSERT_EQUAL_INT_MESSAGE(1, task_calls, "the first task was lost");
@@ -437,15 +437,15 @@ void test_two_interrupts_do_not_lose_a_task(void)
  */
 void test_stop_halts_the_machine(void)
 {
-    fsm_init(&test_fsm, state_a);
-    fsm_loop(&test_fsm);
-    TEST_ASSERT_TRUE(fsm_running(&test_fsm));
+    seq_init(&test_seq, state_a);
+    seq_loop(&test_seq);
+    TEST_ASSERT_TRUE(seq_running(&test_seq));
 
-    fsm_stop(&test_fsm);
-    TEST_ASSERT_FALSE(fsm_running(&test_fsm));
+    seq_stop(&test_seq);
+    TEST_ASSERT_FALSE(seq_running(&test_seq));
 
-    fsm_loop(&test_fsm);
-    fsm_loop(&test_fsm);
+    seq_loop(&test_seq);
+    seq_loop(&test_seq);
 
     TEST_ASSERT_EQUAL_INT_MESSAGE(1, state_a_calls, "a stopped machine kept running");
 }
@@ -456,13 +456,13 @@ void test_stop_halts_the_machine(void)
  */
 void test_a_stopped_machine_can_be_restarted(void)
 {
-    fsm_init(&test_fsm, state_a);
-    fsm_stop(&test_fsm);
+    seq_init(&test_seq, state_a);
+    seq_stop(&test_seq);
 
-    fsm_next(&test_fsm, state_b, 0U);
-    fsm_loop(&test_fsm);
+    seq_next(&test_seq, state_b, 0U);
+    seq_loop(&test_seq);
 
-    TEST_ASSERT_TRUE(fsm_running(&test_fsm));
+    TEST_ASSERT_TRUE(seq_running(&test_seq));
     TEST_ASSERT_EQUAL_INT(1, state_b_calls);
 }
 
@@ -475,28 +475,28 @@ void test_a_stopped_machine_can_be_restarted(void)
  */
 void test_a_stopped_machine_still_serves_the_queue(void)
 {
-    fsm_init(&test_fsm, state_a);
-    fsm_stop(&test_fsm);
+    seq_init(&test_seq, state_a);
+    seq_stop(&test_seq);
 
-    TEST_ASSERT_EQUAL_INT(FSM_ERR_NONE, fsm_task_add(task_one));
-    fsm_loop(&test_fsm);
+    TEST_ASSERT_EQUAL_INT(SEQ_ERR_NONE, seq_task_add(task_one));
+    seq_loop(&test_seq);
 
     TEST_ASSERT_EQUAL_INT(1, task_calls);
 }
 
 /*****************************************************************************************************/
 /**
- * @brief The peak depth is what FSM_MAX_TASKS should be sized against.
+ * @brief The peak depth is what SEQ_MAX_TASKS should be sized against.
  */
 void test_the_queue_reports_how_deep_it_ever_got(void)
 {
-    uint32_t before = fsm_task_peak();
+    uint32_t before = seq_task_peak();
 
-    (void)fsm_task_add(task_one);
-    (void)fsm_task_add(task_one);
+    (void)seq_task_add(task_one);
+    (void)seq_task_add(task_one);
 
-    TEST_ASSERT_MESSAGE(fsm_task_peak() >= 2U, "peak depth was not recorded");
-    TEST_ASSERT_MESSAGE(fsm_task_peak() >= before, "peak depth went backwards");
+    TEST_ASSERT_MESSAGE(seq_task_peak() >= 2U, "peak depth was not recorded");
+    TEST_ASSERT_MESSAGE(seq_task_peak() >= before, "peak depth went backwards");
 }
 
 /*****************************************************************************************************/
@@ -505,16 +505,16 @@ void test_the_queue_reports_how_deep_it_ever_got(void)
  */
 void test_flush_empties_the_queue(void)
 {
-    fsm_init(&test_fsm, state_noop);
+    seq_init(&test_seq, state_noop);
 
-    (void)fsm_task_add(task_one);
-    (void)fsm_task_add(task_one);
+    (void)seq_task_add(task_one);
+    (void)seq_task_add(task_one);
 
-    fsm_task_flush();
+    seq_task_flush();
 
-    for (uint32_t i = 0U; i < (FSM_MAX_TASKS + 2U); i++)
+    for (uint32_t i = 0U; i < (SEQ_MAX_TASKS + 2U); i++)
     {
-        fsm_loop(&test_fsm);
+        seq_loop(&test_seq);
     }
 
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, task_calls, "a flushed task still ran");
@@ -526,9 +526,9 @@ void test_flush_empties_the_queue(void)
  */
 void test_null_is_refused_by_the_new_calls(void)
 {
-    fsm_stop(NULL);
+    seq_stop(NULL);
 
-    TEST_ASSERT_FALSE(fsm_running(NULL));
+    TEST_ASSERT_FALSE(seq_running(NULL));
 }
 
 /*****************************************************************************************************/
@@ -577,13 +577,13 @@ int main(void)
  */
 static void queue_drain(void)
 {
-    fsm_t scratch;
+    seq_t scratch;
 
-    fsm_init(&scratch, state_noop);
+    seq_init(&scratch, state_noop);
 
-    for (uint32_t i = 0U; i < (FSM_MAX_TASKS + 1U); i++)
+    for (uint32_t i = 0U; i < (SEQ_MAX_TASKS + 1U); i++)
     {
-        fsm_loop(&scratch);
+        seq_loop(&scratch);
     }
 }
 
@@ -637,9 +637,9 @@ static void task_two(void)
  */
 static void state_waits_then_times_out(void)
 {
-    if (fsm_time(&test_fsm) > 5000U)
+    if (seq_time(&test_seq) > 5000U)
     {
-        fsm_next(&test_fsm, state_b, 0U);
+        seq_next(&test_seq, state_b, 0U);
     }
 }
 
@@ -650,14 +650,14 @@ static void state_waits_then_times_out(void)
  * It only fires when interrupts are enabled, because that is the one thing the
  * hardware guarantees and the only thing the fix can rely on.
  */
-void fsm_test_hook(void)
+void seq_test_hook(void)
 {
-    if ((queue_preempt_with != NULL) && (fsm_test_primask == 0))
+    if ((queue_preempt_with != NULL) && (seq_test_primask == 0))
     {
-        fsm_fn_t pending = queue_preempt_with;
+        seq_fn_t pending = queue_preempt_with;
 
         queue_preempt_with = NULL;
-        (void)fsm_task_add(pending);
+        (void)seq_task_add(pending);
     }
 }
 
@@ -672,15 +672,15 @@ void fsm_test_hook(void)
  *
  * @param[in] value  The PRIMASK value being restored.
  */
-void fsm_test_set_primask(uint32_t value)
+void seq_test_set_primask(uint32_t value)
 {
-    fsm_test_primask = (int)value;
+    seq_test_primask = (int)value;
 
-    if ((fsm_test_primask == 0) && (queue_preempt_with != NULL))
+    if ((seq_test_primask == 0) && (queue_preempt_with != NULL))
     {
-        fsm_fn_t pending = queue_preempt_with;
+        seq_fn_t pending = queue_preempt_with;
 
         queue_preempt_with = NULL;
-        (void)fsm_task_add(pending);
+        (void)seq_task_add(pending);
     }
 }
