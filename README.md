@@ -49,20 +49,29 @@ Nothing is installed on your machine and there is no pip step. The installer is 
 
 ### Or install it without downloading the repository
 
-From the root of your project:
+Run this from the root of your STM32 project. One line, and it knows it is installing fsm because that is the repository it came from.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/nimaltd/stm32-installer/main/install.py -o install.py
-python install.py fsm
+**Windows, Command Prompt:**
+
+```bat
+curl -fsSL https://raw.githubusercontent.com/nimaltd/fsm/master/install.py -o install.py && python install.py
 ```
 
-On Windows PowerShell, replace the first line with:
+**Windows, PowerShell:**
 
 ```powershell
-irm https://raw.githubusercontent.com/nimaltd/stm32-installer/main/install.py -OutFile install.py
+irm https://raw.githubusercontent.com/nimaltd/fsm/master/install.py -OutFile install.py; python install.py
 ```
 
-It asks which folder to use and downloads only the files the library actually needs, not the whole repository. The same `install.py` installs any of the libraries, so `python install.py spif` works too.
+PowerShell needs `irm` here rather than `curl`, because in PowerShell `curl` is an alias for a different command that does not understand those options.
+
+**Linux and macOS:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nimaltd/fsm/master/install.py -o install.py && python3 install.py
+```
+
+It asks which folder to use, then downloads only the files the library actually needs, not the whole repository. Keep the `install.py` if you like: running it again is how you update.
 
 ### Or copy the files in by hand
 

@@ -5,7 +5,7 @@ Install a NimaLTD library into your STM32 project.
 Run it from the root of your project. It works two ways, depending on whether
 this file has a library sitting next to it.
 
-    python install.py
+    python fsm/install.py
         You downloaded this repository into your project, so the library is
         already here. Nothing is asked. The repository folder becomes a plain
         library folder: the header and source move to the top, your config file
@@ -16,10 +16,12 @@ this file has a library sitting next to it.
         project, and this repository ships a test suite with its own main(),
         which would break your build.
 
-    python install.py fsm
-        This file is on its own, so the library is fetched from GitHub. You are
-        asked which folder to put it in. Only the files the library actually
-        needs are downloaded.
+    python install.py
+        This file is on its own, downloaded from a library's repository, so it
+        fetches that library from GitHub. You are asked which folder to put it
+        in, and only the files the library actually needs are downloaded.
+
+        Pass a name to install a different one: python install.py spif
 
 Your own <library>_config.h is never overwritten, so either form is also how you
 update.
@@ -39,8 +41,21 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-MODULE = "stm32_installer"
+# Which library this copy installs when it is downloaded on its own, away from
+# its repository, and which branch to take it from.
+#
+# Written as "owner/name" rather than a bare name so that a fork under someone
+# else's account works by changing this one line. A full GitHub URL works too.
+# The copy in the stm32-installer repository leaves LIBRARY as None, because
+# that one is not tied to any particular library.
+LIBRARY = "nimaltd/fsm"
+BRANCH = "master"
+
+# Where the installer itself comes from. Anyone maintaining their own libraries
+# with this tool points these at their own repositories and changes nothing else.
 SOURCE = "https://github.com/nimaltd/stm32-installer/archive/refs/heads/main.zip"
+
+MODULE = "stm32_installer"
 MANIFEST = "library.yml"
 TIMEOUT_SECONDS = 30
 
@@ -129,12 +144,17 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     beside_a_library = (HERE / MANIFEST).is_file()
 
+    # Downloaded on its own, with no name given. This copy knows which library
+    # it came from, which is what makes the one line command work.
+    if not beside_a_library and not argv and LIBRARY:
+        argv = [LIBRARY, "--ref", BRANCH]
+
     if not beside_a_library and not argv:
         print(
             f"There is no {MANIFEST} next to this file, so there is no library here "
             "to install.\n"
             "Say which one you want, for example:\n\n"
-            f"    {Path(sys.executable).name} {Path(__file__).name} fsm\n",
+            f"    python {Path(__file__).name} fsm\n",
             file=sys.stderr,
         )
         return 2
