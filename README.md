@@ -29,6 +29,11 @@ src/    seq.h, seq.c, seq_config.h
 test/   host unit tests, run on a PC
 ```
 
+When the library is installed into a project it is flattened: `seq.h`, `seq.c` and
+`seq_config.h` sit in one folder with no `src/`, `test/` or `install.py`. The
+sections below about the installer and the tests refer to this repository, not to
+an installed copy.
+
 ---
 
 ## ⚙️ Installing it
@@ -220,7 +225,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 | `uint32_t seq_task_peak(void)` | The most tasks ever queued at once |
 | `void seq_task_flush(void)` | Drop everything queued |
 
-`seq_task_add()` returns `SEQ_ERR_NONE` when the task was queued, or `SEQ_ERR_FULL` when the queue is full. It is the only call that is safe from an interrupt, and `seq_loop()` must have a single caller, since two would both consume the queue and could take the same task twice.
+`seq_task_add()` returns `SEQ_ERR_NONE` when the task was queued, `SEQ_ERR_FULL` when the queue is full, or `SEQ_ERR_INVALID` when `task_fn` is `NULL`. It is the only call that is safe from an interrupt, and `seq_loop()` must have a single caller, since two would both consume the queue and could take the same task twice.
 
 Use `seq_task_peak()` to size `SEQ_MAX_TASKS` by measurement. A full queue is reported to the caller, but that caller is usually an interrupt handler where nobody checks a return value, so the peak is in practice the only way to find out you were close to overflowing.
 

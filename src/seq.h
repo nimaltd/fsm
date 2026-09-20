@@ -29,6 +29,15 @@
 
 #include "seq_config.h"
 
+/* One slot is always kept free so a full queue can be told apart from an empty
+   one, so the queue needs at least two slots to work at all. Checked here
+   rather than in seq_config.h, because that file is the user's copy and is
+   never replaced, so a check living there would never reach anyone who
+   installed before it was added. */
+#if SEQ_MAX_TASKS < 2U
+#error "SEQ_MAX_TASKS must be at least 2"
+#endif
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -52,8 +61,9 @@ typedef void (*seq_fn_t)(void);
  */
 typedef enum
 {
-    SEQ_ERR_NONE = 0, /**< The task was queued.    */
-    SEQ_ERR_FULL = 1, /**< The task queue is full. */
+    SEQ_ERR_NONE    = 0, /**< The task was queued.        */
+    SEQ_ERR_FULL    = 1, /**< The task queue is full.     */
+    SEQ_ERR_INVALID = 2, /**< The task pointer was NULL.  */
 
 } seq_err_t;
 

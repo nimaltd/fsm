@@ -32,6 +32,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ### Added
 
 - `seq_stop()` and `seq_running()`, to halt a sequence and ask whether it is halted.
+- `SEQ_ERR_INVALID`, returned by `seq_task_add()` when the task pointer is NULL, so a bad argument is no longer reported as a full queue.
 - `seq_task_peak()` and `seq_task_flush()`, to size `SEQ_MAX_TASKS` by measurement and to drop queued work.
 - Host unit tests, run with `python test/run_tests.py`.
 - CMake build, and `install.py` to install the library into a project.
@@ -40,3 +41,5 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - `seq_time()` returned zero inside a running state, so every timeout built on it silently never fired.
 - A queued task could be lost when two interrupts called `seq_task_add()` at the same moment. `SEQ_ERR_NONE` was returned for both.
+- `seq_time()` now returns 0 while the sequence is stopped, rather than a number that keeps climbing for a state nothing is running.
+- `SEQ_MAX_TASKS` below 2 is refused at compile time. One slot is always left free, so a smaller queue could never accept anything, and it failed silently.

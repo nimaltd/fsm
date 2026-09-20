@@ -104,7 +104,7 @@ void seq_init(seq_t *handle, seq_fn_t first_fn)
     {
         handle->next_fn  = first_fn;
         handle->delay_ms = 0U;
-        handle->time     = HAL_GetTick();
+        handle->time     = HAL_GetTick(); /* Sane value for seq_time() before the first run. */
         handle->entering = 1U;
     }
 }
@@ -179,11 +179,14 @@ void seq_next(seq_t *handle, seq_fn_t next_fn, uint32_t delay_ms)
 /**
  * @brief Get how long the machine has been in the current state.
  *
- * The count restarts every time a state function is entered, so a state can
- * use it to measure its own runtime.
+ * The clock restarts when a transition is requested with seq_init() or
+ * seq_next(), and again when the next state actually starts running, so a
+ * state can use it to measure its own runtime. While a delayed transition is
+ * pending, it measures the wait so far.
  *
  * @param[in] handle  Handle to read. Must not be NULL.
- * @return Milliseconds since the current state was entered, or 0 if handle is NULL.
+ * @return Milliseconds since the last transition, or 0 if handle is NULL or
+ *         the machine is stopped.
  */
 uint32_t seq_time(const seq_t *handle)
 {
@@ -191,7 +194,7 @@ uint32_t seq_time(const seq_t *handle)
 
     assert_param(handle != NULL);
 
-    if (handle != NULL)
+    if ((handle != NULL) && (handle->next_fn != NULL))
     {
         elapsed = HAL_GetTick() - handle->time;
     }
@@ -248,6 +251,8 @@ bool seq_running(const seq_t *handle)
  */
 uint32_t seq_task_peak(void)
 {
+    /* An aligned 32-bit load is atomic on Cortex-M, so no critical section is
+       needed to read the peak. */
     return seq_queue.peak;
 }
 
@@ -277,16 +282,18 @@ void seq_task_flush(void)
  *
  * @param[in] task_fn  Task to queue. Must not be NULL.
  * @return SEQ_ERR_NONE if the task was queued, SEQ_ERR_FULL if the queue is
- *         full or task_fn is NULL.
+ *         full, or SEQ_ERR_INVALID if task_fn is NULL.
  */
 seq_err_t seq_task_add(seq_fn_t task_fn)
 {
-    seq_err_t err = SEQ_ERR_FULL;
+    seq_err_t err = SEQ_ERR_INVALID;
 
     assert_param(task_fn != NULL);
 
     if (task_fn != NULL)
     {
+        err = SEQ_ERR_FULL;
+
         /* Claiming a slot is read, write, publish, and a higher priority
            interrupt landing in the middle of that would claim the same slot and
            one of the two tasks would vanish with no error reported. Saving and

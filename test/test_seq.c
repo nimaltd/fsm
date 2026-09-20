@@ -294,7 +294,7 @@ void test_queue_wraps_around(void)
  */
 void test_null_arguments_are_refused(void)
 {
-    TEST_ASSERT_EQUAL_INT(SEQ_ERR_FULL, seq_task_add(NULL));
+    TEST_ASSERT_EQUAL_INT(SEQ_ERR_INVALID, seq_task_add(NULL));
     TEST_ASSERT_EQUAL_UINT32(0U, seq_time(NULL));
 
     seq_init(NULL, state_a);
@@ -533,6 +533,44 @@ void test_null_is_refused_by_the_new_calls(void)
 
 /*****************************************************************************************************/
 /**
+ * @brief A NULL task is told apart from a full queue.
+ *
+ * Both used to return SEQ_ERR_FULL, which said the queue was the problem when
+ * the argument was.
+ */
+void test_a_null_task_is_not_reported_as_a_full_queue(void)
+{
+    TEST_ASSERT_EQUAL_INT(SEQ_ERR_INVALID, seq_task_add(NULL));
+    TEST_ASSERT_EQUAL_INT_MESSAGE(SEQ_ERR_NONE, seq_task_add(task_one),
+                                  "a real task was refused after a NULL one");
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief A stopped machine reports no elapsed time.
+ *
+ * It is in no state, so a number counting up from the last transition would
+ * only invite a timeout that can never be acted on.
+ */
+void test_time_is_zero_once_stopped(void)
+{
+    test_tick = 1000U;
+    seq_init(&test_seq, state_a);
+    seq_loop(&test_seq);
+
+    test_tick = 1500U;
+    TEST_ASSERT_EQUAL_UINT32(500U, seq_time(&test_seq));
+
+    seq_stop(&test_seq);
+    TEST_ASSERT_EQUAL_UINT32_MESSAGE(0U, seq_time(&test_seq),
+                                     "a stopped machine still reported elapsed time");
+
+    test_tick = 2000U;
+    TEST_ASSERT_EQUAL_UINT32(0U, seq_time(&test_seq));
+}
+
+/*****************************************************************************************************/
+/**
  * @brief Run every test and report the result.
  *
  * @return 0 if every test passed, otherwise the number of failures.
@@ -561,6 +599,8 @@ int main(void)
     RUN_TEST(test_the_queue_reports_how_deep_it_ever_got);
     RUN_TEST(test_flush_empties_the_queue);
     RUN_TEST(test_null_is_refused_by_the_new_calls);
+    RUN_TEST(test_a_null_task_is_not_reported_as_a_full_queue);
+    RUN_TEST(test_time_is_zero_once_stopped);
 
     return UNITY_END();
 }
