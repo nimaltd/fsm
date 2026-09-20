@@ -71,7 +71,19 @@ PowerShell needs `irm` here rather than `curl`, because in PowerShell `curl` is 
 curl -fsSL https://raw.githubusercontent.com/nimaltd/fsm/master/install.py -o install.py && python3 install.py
 ```
 
-It asks which folder to use, then downloads only the files the library actually needs, not the whole repository. Keep the `install.py` if you like: running it again is how you update.
+It asks which folder to use, then downloads only the files the library actually needs, not the whole repository. Afterwards it deletes itself, so your project is left with the library and nothing else.
+
+To update later, run the same one line again.
+
+### Pinning a version
+
+By default you get the newest code on `master`. To hold a project on one release instead, add `--ref` with a tag:
+
+```bash
+python install.py --ref 2.0.0
+```
+
+A branch name or a commit hash works there too, which is useful when you need exactly what you built with last time.
 
 ### Or copy the files in by hand
 

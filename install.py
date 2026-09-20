@@ -20,8 +20,10 @@ this file has a library sitting next to it.
         This file is on its own, downloaded from a library's repository, so it
         fetches that library from GitHub. You are asked which folder to put it
         in, and only the files the library actually needs are downloaded.
+        Afterwards this file deletes itself.
 
-        Pass a name to install a different one: python install.py spif
+        python install.py --ref 1.20.0      a released version, not the newest
+        python install.py nimaltd/spif      a different library altogether
 
 Your own <library>_config.h is never overwritten, so either form is also how you
 update.
@@ -140,14 +142,61 @@ def get_installer(staging):
     return installer
 
 
+# Options that swallow the argument after them. Without this, the "v2.0.0" in
+# "--ref v2.0.0" reads as a library name and the wrong thing gets installed.
+VALUE_OPTIONS = ("--ref", "--dir", "--project", "--local", "--ide")
+
+
+def _library_names(argv):
+    """The arguments that actually name a library, ignoring options and values."""
+    names = []
+    skip = False
+
+    for arg in argv:
+        if skip:
+            skip = False
+            continue
+
+        if arg.startswith("-"):
+            skip = arg in VALUE_OPTIONS
+            continue
+
+        names.append(arg)
+
+    return names
+
+
+def remove_self():
+    """
+    Delete this file once it has finished.
+
+    Python reads the whole script before running it and closes the file, so this
+    is safe even on Windows, where a file in use normally cannot be deleted.
+    """
+    try:
+        Path(__file__).resolve().unlink()
+        print(f"Removed {Path(__file__).name}, it has done its job.")
+    except OSError:
+        # Not worth failing an install that already succeeded.
+        pass
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
+
+    # Options are not a library name. "--ref v2.0.0" still means "the library
+    # this copy belongs to", just at a different version.
+    named = _library_names(argv)
     beside_a_library = (HERE / MANIFEST).is_file()
 
-    # Downloaded on its own, with no name given. This copy knows which library
-    # it came from, which is what makes the one line command work.
-    if not beside_a_library and not argv and LIBRARY:
-        argv = [LIBRARY, "--ref", BRANCH]
+    # Downloaded on its own, with no library named. This copy knows which one it
+    # came from, which is what makes the one line command work.
+    if not beside_a_library and not named and LIBRARY:
+        argv = [LIBRARY] + argv
+
+        # Only when the caller has not chosen a version of their own.
+        if "--ref" not in argv:
+            argv += ["--ref", BRANCH]
 
     if not beside_a_library and not argv:
         print(
@@ -172,10 +221,18 @@ def main(argv=None):
             )
             return 2
 
-        if beside_a_library and not argv:
+        if beside_a_library and not named:
             return installer.main(library_root=HERE)
 
-        return installer.main(argv=argv)
+        code = installer.main(argv=argv)
+
+        # A copy downloaded on its own has done its job and would only be
+        # clutter in the project from here on. One that was given a library to
+        # install is being used as a tool, so it stays for the next one.
+        if code == 0 and not named:
+            remove_self()
+
+        return code
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 
