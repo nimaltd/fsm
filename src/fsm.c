@@ -27,6 +27,12 @@
 
 #include "main.h"
 
+/* A place for the tests to simulate a higher priority interrupt arriving at the
+   worst possible moment. Nothing is generated unless the tests define it. */
+#ifndef FSM_TEST_HOOK
+#define FSM_TEST_HOOK() do { } while (0)
+#endif
+
 /*
  * ****************************************************************************************************
  * Types
@@ -42,6 +48,7 @@ typedef struct
     __IO fsm_fn_t fn[FSM_MAX_TASKS]; /**< Circular buffer of queued tasks. */
     __IO uint32_t head;              /**< Slot the producer writes next.   */
     __IO uint32_t tail;              /**< Slot the consumer reads next.    */
+    __IO uint32_t peak;              /**< Deepest the queue has ever been. */
 
 } fsm_queue_t;
 
@@ -60,6 +67,12 @@ static fsm_queue_t fsm_queue;
  * Private function prototypes
  * ****************************************************************************************************
 */
+
+/*****************************************************************************************************/
+/**
+ * @brief Restart the clock if this is the first run of a new state.
+ */
+static void fsm_enter(fsm_t *handle);
 
 /*****************************************************************************************************/
 /**
@@ -92,6 +105,7 @@ void fsm_init(fsm_t *handle, fsm_fn_t first_fn)
         handle->next_fn  = first_fn;
         handle->delay_ms = 0U;
         handle->time     = HAL_GetTick();
+        handle->entering = 1U;
     }
 }
 
@@ -117,7 +131,7 @@ void fsm_loop(fsm_t *handle)
         {
             if (handle->delay_ms == 0U)
             {
-                handle->time = HAL_GetTick();
+                fsm_enter(handle);
                 handle->next_fn();
             }
             else if ((HAL_GetTick() - handle->time) >= handle->delay_ms)
@@ -125,7 +139,7 @@ void fsm_loop(fsm_t *handle)
                 /* Clear the delay before the state runs, so the state itself is
                    free to ask for a new one. */
                 handle->delay_ms = 0U;
-                handle->time     = HAL_GetTick();
+                fsm_enter(handle);
                 handle->next_fn();
             }
             else
@@ -157,6 +171,7 @@ void fsm_next(fsm_t *handle, fsm_fn_t next_fn, uint32_t delay_ms)
         handle->delay_ms = delay_ms;
         handle->time     = HAL_GetTick();
         handle->next_fn  = next_fn;
+        handle->entering = 1U;
     }
 }
 
@@ -186,6 +201,63 @@ uint32_t fsm_time(const fsm_t *handle)
 
 /*****************************************************************************************************/
 /**
+ * @brief Stop the machine. No state runs until fsm_next() or fsm_init() is called.
+ *
+ * @param[in,out] handle  Handle to stop. Must not be NULL.
+ */
+void fsm_stop(fsm_t *handle)
+{
+    assert_param(handle != NULL);
+
+    if (handle != NULL)
+    {
+        handle->next_fn  = NULL;
+        handle->delay_ms = 0U;
+        handle->entering = 0U;
+    }
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief Whether the machine has a state to run.
+ *
+ * @param[in] handle  Handle to read. Must not be NULL.
+ * @return true while a state is scheduled, false after fsm_stop().
+ */
+bool fsm_running(const fsm_t *handle)
+{
+    assert_param(handle != NULL);
+
+    return (handle != NULL) && (handle->next_fn != NULL);
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief The most tasks that have ever been queued at once.
+ *
+ * @return Peak number of queued tasks since reset.
+ */
+uint32_t fsm_task_peak(void)
+{
+    return fsm_queue.peak;
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief Drop every queued task.
+ */
+void fsm_task_flush(void)
+{
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+
+    fsm_queue.tail = fsm_queue.head;
+
+    __set_PRIMASK(primask);
+}
+
+/*****************************************************************************************************/
+/**
  * @brief Add a task to the queue.
  *
  * Safe to call from an interrupt. The task runs later, from fsm_loop(), which
@@ -203,22 +275,45 @@ fsm_err_t fsm_task_add(fsm_fn_t task_fn)
 
     if (task_fn != NULL)
     {
-        uint32_t head      = fsm_queue.head;
-        uint32_t next_head = (head + 1U) % FSM_MAX_TASKS;
+        /* Claiming a slot is read, write, publish, and a higher priority
+           interrupt landing in the middle of that would claim the same slot and
+           one of the two tasks would vanish with no error reported. Saving and
+           restoring PRIMASK, rather than simply enabling interrupts at the end,
+           keeps this safe to call from code that already has them disabled. */
+        uint32_t primask = __get_PRIMASK();
+        __disable_irq();
 
-        /* Leaving one slot free is what lets a full queue be told apart from
-           an empty one, since both would otherwise have head == tail. */
-        if (next_head != fsm_queue.tail)
         {
-            fsm_queue.fn[head] = task_fn;
+            uint32_t head      = fsm_queue.head;
+            uint32_t next_head = (head + 1U) % FSM_MAX_TASKS;
 
-            /* The slot has to be visible before head publishes it, or the main
-               loop can read a stale pointer out of it. */
-            __DMB();
+            FSM_TEST_HOOK();
 
-            fsm_queue.head = next_head;
-            err            = FSM_ERR_NONE;
+            /* Leaving one slot free is what lets a full queue be told apart
+               from an empty one, since both would otherwise have head == tail. */
+            if (next_head != fsm_queue.tail)
+            {
+                fsm_queue.fn[head] = task_fn;
+
+                /* The slot has to be visible before head publishes it, or the
+                   main loop can read a stale pointer out of it. */
+                __DMB();
+
+                fsm_queue.head = next_head;
+                err            = FSM_ERR_NONE;
+
+                {
+                    uint32_t depth = (next_head + FSM_MAX_TASKS - fsm_queue.tail) % FSM_MAX_TASKS;
+
+                    if (depth > fsm_queue.peak)
+                    {
+                        fsm_queue.peak = depth;
+                    }
+                }
+            }
         }
+
+        __set_PRIMASK(primask);
     }
 
     return err;
@@ -229,6 +324,24 @@ fsm_err_t fsm_task_add(fsm_fn_t task_fn)
  * Private function implementations
  * ****************************************************************************************************
 */
+
+/*****************************************************************************************************/
+/**
+ * @brief Restart the clock if this is the first run of a new state.
+ *
+ * The clock must not restart on every pass, or fsm_time() would sit at zero for
+ * a state that runs on every loop, and every timeout built on it would be dead.
+ *
+ * @param[in,out] handle  Handle being run.
+ */
+static void fsm_enter(fsm_t *handle)
+{
+    if (handle->entering != 0U)
+    {
+        handle->entering = 0U;
+        handle->time     = HAL_GetTick();
+    }
+}
 
 /*****************************************************************************************************/
 /**

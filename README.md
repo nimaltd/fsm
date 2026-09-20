@@ -196,9 +196,17 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 | `void fsm_loop(fsm_t *handle)` | Run queued tasks and the current state. Call it from your main loop |
 | `void fsm_next(fsm_t *handle, fsm_fn_t next_fn, uint32_t delay_ms)` | Choose the next state, optionally after a delay |
 | `uint32_t fsm_time(const fsm_t *handle)` | How long the machine has been in the current state |
+| `void fsm_stop(fsm_t *handle)` | Halt the machine. Nothing runs until the next `fsm_next()` |
+| `bool fsm_running(const fsm_t *handle)` | False once stopped |
 | `fsm_err_t fsm_task_add(fsm_fn_t task_fn)` | Queue a task. Safe to call from an interrupt |
+| `uint32_t fsm_task_peak(void)` | The most tasks ever queued at once |
+| `void fsm_task_flush(void)` | Drop everything queued |
 
 `fsm_task_add()` returns `FSM_ERR_NONE` when the task was queued, or `FSM_ERR_FULL` when the queue is full.
+
+Use `fsm_task_peak()` to size `FSM_MAX_TASKS` by measurement. A full queue is reported to the caller, but that caller is usually an interrupt handler where nobody checks a return value, so the peak is in practice the only way to find out you were close to overflowing.
+
+Stopping does not stop the task queue. Tasks belong to the application rather than to any one machine, so `fsm_loop()` keeps serving them even on a stopped machine.
 
 ---
 

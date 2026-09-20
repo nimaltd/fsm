@@ -24,6 +24,7 @@
  * ****************************************************************************************************
 */
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "fsm_config.h"
@@ -65,6 +66,7 @@ typedef struct
     fsm_fn_t next_fn;  /**< State function to run next.                    */
     uint32_t time;     /**< Tick value when the current state was entered. */
     uint32_t delay_ms; /**< Delay to wait before the next state runs.      */
+    uint8_t  entering; /**< Set until the next state has run once.         */
 
 } fsm_t;
 
@@ -97,6 +99,47 @@ void fsm_next(fsm_t *handle, fsm_fn_t next_fn, uint32_t delay_ms);
  * @brief Get how long the machine has been in the current state, in milliseconds.
  */
 uint32_t fsm_time(const fsm_t *handle);
+
+/*****************************************************************************************************/
+/**
+ * @brief Stop the machine. No state runs until fsm_next() or fsm_init() is called.
+ *
+ * Useful for a terminal state, which would otherwise have to keep scheduling
+ * itself to stay put.
+ *
+ * @param[in,out] handle  Handle to stop. Must not be NULL.
+ */
+void fsm_stop(fsm_t *handle);
+
+/*****************************************************************************************************/
+/**
+ * @brief Whether the machine has a state to run.
+ *
+ * @param[in] handle  Handle to read. Must not be NULL.
+ * @return true while a state is scheduled, false after fsm_stop().
+ */
+bool fsm_running(const fsm_t *handle);
+
+/*****************************************************************************************************/
+/**
+ * @brief The most tasks that have ever been queued at once.
+ *
+ * There to size FSM_MAX_TASKS by measurement rather than by guessing. A full
+ * queue is reported by fsm_task_add(), but that call is usually made from an
+ * interrupt where nobody checks the result, so this is the only practical way
+ * to find out the queue was ever close to full.
+ *
+ * @return Peak number of queued tasks since reset.
+ */
+uint32_t fsm_task_peak(void);
+
+/*****************************************************************************************************/
+/**
+ * @brief Drop every queued task.
+ *
+ * Call it from the main loop, not from an interrupt.
+ */
+void fsm_task_flush(void);
 
 /*****************************************************************************************************/
 /**
