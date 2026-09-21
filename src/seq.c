@@ -92,30 +92,31 @@ static void seq_queue_run(void);
 
 /*****************************************************************************************************/
 /**
- * @brief Initialize a handle, set the state it starts from, and keep user for it.
+ * @brief Initialize a handle, set the state it starts from, and what it carries.
  *
  * The machine runs first_fn on the next call to seq_loop(), with no delay.
  *
- * user is never read by this library. It is there so one set of state functions
- * can drive several machines: each state is handed its own handle, and reaches
- * whatever belongs to that machine through handle->user.
+ * user_data is never read by this library, only stored and handed back. It is
+ * there so one set of state functions can drive several machines: each state is
+ * given its own handle, and reaches whatever belongs to that machine through
+ * handle->user_data.
  *
- * @param[out] handle    Handle to initialize. Must not be NULL.
- * @param[in]  first_fn  State function to start from. Must not be NULL.
- * @param[in]  user      Anything the state functions need. May be NULL.
+ * @param[out] handle     Handle to initialize. Must not be NULL.
+ * @param[in]  first_fn   State function to start from. Must not be NULL.
+ * @param[in]  user_data  Anything the state functions need. May be NULL.
  */
-void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *user)
+void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *user_data)
 {
     assert_param(handle != NULL);
     assert_param(first_fn != NULL);
 
     if ((handle != NULL) && (first_fn != NULL))
     {
-        handle->next_fn  = first_fn;
-        handle->user     = user;
-        handle->delay_ms = 0U;
-        handle->time     = HAL_GetTick(); /* Sane value for seq_time() before the first run. */
-        handle->entering = 1U;
+        handle->next_fn   = first_fn;
+        handle->user_data = user_data;
+        handle->delay_ms  = 0U;
+        handle->time      = HAL_GetTick(); /* Sane value for seq_time() before the first run. */
+        handle->entering  = 1U;
     }
 }
 

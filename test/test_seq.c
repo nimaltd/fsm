@@ -91,9 +91,9 @@ static void state_noop(seq_t *handle);
 
 /*****************************************************************************************************/
 /**
- * @brief A state that counts a run against whatever handle->user points at.
+ * @brief A state that counts a run into whatever handle->user_data points at.
  */
-static void state_counts_into_user(seq_t *handle);
+static void state_counts_into_user_data(seq_t *handle);
 
 /*****************************************************************************************************/
 /**
@@ -288,8 +288,8 @@ void test_two_machines_share_one_state_function(void)
     int   first_runs  = 0;
     int   second_runs = 0;
 
-    seq_init(&first, state_counts_into_user, &first_runs);
-    seq_init(&second, state_counts_into_user, &second_runs);
+    seq_init(&first, state_counts_into_user_data, &first_runs);
+    seq_init(&second, state_counts_into_user_data, &second_runs);
 
     seq_loop(&first);
     seq_loop(&first);
@@ -443,15 +443,15 @@ void test_null_arguments_are_refused(void)
 
 /*****************************************************************************************************/
 /**
- * @brief A NULL user pointer is allowed, since not every machine needs one.
+ * @brief A NULL user_data is allowed, since not every machine carries something.
  */
-void test_a_null_user_pointer_is_fine(void)
+void test_a_null_user_data_is_fine(void)
 {
     seq_init(&test_seq, state_a, NULL);
     seq_loop(&test_seq);
 
     TEST_ASSERT_EQUAL_INT(1, state_a_calls);
-    TEST_ASSERT_NULL(test_seq.user);
+    TEST_ASSERT_NULL(test_seq.user_data);
 }
 
 /*****************************************************************************************************/
@@ -620,21 +620,21 @@ void test_a_stopped_machine_can_be_restarted(void)
 
 /*****************************************************************************************************/
 /**
- * @brief Stopping a machine leaves its user pointer alone.
+ * @brief Stopping a machine leaves its user_data alone.
  *
  * It belongs to the caller, not to the run, so restarting must not need it to
  * be handed over a second time.
  */
-void test_stopping_keeps_the_user_pointer(void)
+void test_stopping_keeps_the_user_data(void)
 {
     int marker = 0;
 
-    seq_init(&test_seq, state_counts_into_user, &marker);
+    seq_init(&test_seq, state_counts_into_user_data, &marker);
     seq_stop(&test_seq);
-    seq_next(&test_seq, state_counts_into_user, 0U);
+    seq_next(&test_seq, state_counts_into_user_data, 0U);
     seq_loop(&test_seq);
 
-    TEST_ASSERT_EQUAL_INT_MESSAGE(1, marker, "the user pointer was lost across a stop");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, marker, "user_data was lost across a stop");
 }
 
 /*****************************************************************************************************/
@@ -804,8 +804,8 @@ int main(void)
     RUN_TEST(test_a_task_is_given_its_argument);
     RUN_TEST(test_every_queued_task_keeps_its_own_argument);
     RUN_TEST(test_arguments_survive_the_queue_wrapping);
-    RUN_TEST(test_a_null_user_pointer_is_fine);
-    RUN_TEST(test_stopping_keeps_the_user_pointer);
+    RUN_TEST(test_a_null_user_data_is_fine);
+    RUN_TEST(test_stopping_keeps_the_user_data);
     RUN_TEST(test_queue_refuses_when_full);
     RUN_TEST(test_a_burst_runs_in_one_loop);
     RUN_TEST(test_a_task_that_requeues_itself_does_not_trap_the_loop);
@@ -882,15 +882,15 @@ static void state_noop(seq_t *handle)
 
 /*****************************************************************************************************/
 /**
- * @brief A state that counts a run against whatever handle->user points at.
+ * @brief A state that counts a run into whatever handle->user_data points at.
  */
-static void state_counts_into_user(seq_t *handle)
+static void state_counts_into_user_data(seq_t *handle)
 {
     /* Guarded so a state handed the wrong thing fails an assertion rather than
        bringing the whole suite down with it. */
-    if ((handle != NULL) && (handle->user != NULL))
+    if ((handle != NULL) && (handle->user_data != NULL))
     {
-        (*(int *)handle->user)++;
+        (*(int *)handle->user_data)++;
     }
 }
 
@@ -938,7 +938,7 @@ static void task_sums(void *arg)
 {
     task_calls++;
 
-    /* Same reason as state_counts_into_user: a wrong argument should show up
+    /* Same reason as state_counts_into_user_data: a wrong argument should show up
        as a total that does not add up, not as a crash. */
     if (arg != NULL)
     {

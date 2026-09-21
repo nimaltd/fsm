@@ -192,7 +192,7 @@ seq_t     machines[4];
 
 void state_measure(seq_t *seq)
 {
-    channel_t *channel = seq->user;
+    channel_t *channel = seq->user_data;
 
     start_measurement(channel->uart, channel->address);
     seq_next(seq, state_report, 200);
@@ -284,7 +284,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 | Function | What it does |
 |---|---|
-| `void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *user)` | Set up a handle, the state it starts from, and what it carries |
+| `void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *user_data)` | Set up a handle, the state it starts from, and what it carries |
 | `void seq_loop(seq_t *handle)` | Run queued tasks and the current state. Call it from your main loop |
 | `void seq_next(seq_t *handle, seq_state_fn_t next_fn, uint32_t delay_ms)` | Choose the next state, optionally after a delay |
 | `uint32_t seq_time(const seq_t *handle)` | How long the machine has been in the current state |

@@ -85,11 +85,11 @@ typedef enum
  */
 struct seq_s
 {
-    seq_state_fn_t next_fn;  /**< State function to run next.                    */
-    void           *user;    /**< Yours. Given to seq_init(), never read here.   */
-    uint32_t       time;     /**< Tick value when the current state was entered. */
-    uint32_t       delay_ms; /**< Delay to wait before the next state runs.      */
-    uint8_t        entering; /**< Set until the next state has run once.         */
+    seq_state_fn_t next_fn;    /**< State function to run next.                    */
+    void           *user_data; /**< Yours. Given to seq_init(), never read here.   */
+    uint32_t       time;       /**< Tick value when the current state was entered. */
+    uint32_t       delay_ms;   /**< Delay to wait before the next state runs.      */
+    uint8_t        entering;   /**< Set until the next state has run once.         */
 };
 
 /*
@@ -100,9 +100,9 @@ struct seq_s
 
 /*****************************************************************************************************/
 /**
- * @brief Initialize a handle, set the state it starts from, and keep user for it.
+ * @brief Initialize a handle, set the state it starts from, and what it carries.
  */
-void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *user);
+void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *user_data);
 
 /*****************************************************************************************************/
 /**

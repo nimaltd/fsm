@@ -31,7 +31,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   handle it belongs to, and a task is handed whatever it was queued with:
 
   ```c
-  void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *user);
+  void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *user_data);
   seq_err_t seq_task_add(seq_task_fn_t task_fn, void *arg);
 
   void my_state(seq_t *handle);
@@ -43,8 +43,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   cannot say which peripheral its work belongs to. Both were solved with globals
   before, and neither needs one now.
 
-  `seq_t` gains a `user` field, set by `seq_init()` and never read by the
-  library, so a state reaches its own data through `handle->user`.
+  `seq_t` gains a `user_data` field, set by `seq_init()` and never read by the
+  library, so a state reaches its own data through `handle->user_data`.
 
 - The single `fsm_fn_t` became `seq_state_fn_t` and `seq_task_fn_t`, because a
   state and a task are not the same thing and no longer have the same shape.
