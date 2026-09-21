@@ -86,7 +86,7 @@ typedef enum
 struct seq_s
 {
     seq_state_fn_t next_fn;  /**< State function to run next.                    */
-    void          *user;     /**< Yours. Given to seq_init(), never read here.   */
+    void           *user;    /**< Yours. Given to seq_init(), never read here.   */
     uint32_t       time;     /**< Tick value when the current state was entered. */
     uint32_t       delay_ms; /**< Delay to wait before the next state runs.      */
     uint8_t        entering; /**< Set until the next state has run once.         */

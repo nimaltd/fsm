@@ -406,9 +406,9 @@ static void seq_queue_run(void)
 
     while (seq_queue.tail != upto)
     {
-        uint32_t      tail     = seq_queue.tail;
-        seq_task_fn_t task_fn  = seq_queue.fn[tail];
-        void         *task_arg = seq_queue.arg[tail];
+        uint32_t      tail      = seq_queue.tail;
+        seq_task_fn_t task_fn   = seq_queue.fn[tail];
+        void          *task_arg = seq_queue.arg[tail];
 
         /* Release the slot before running the task, so the task is free to
            queue another one without hitting a queue that is falsely full.

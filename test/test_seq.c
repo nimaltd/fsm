@@ -47,10 +47,10 @@ static int      task_total     = 0;
 static seq_t    test_seq;
 
 /* What the last task to run was handed, so a test can check it arrived. */
-static void    *last_task_arg = NULL;
+static void *last_task_arg = NULL;
 
 /* What the last state to run was handed. */
-static seq_t   *last_state_handle = NULL;
+static seq_t *last_state_handle = NULL;
 
 /* Set by a test to have the fake interrupt queue this, once, from inside
    seq_task_add. NULL means no interrupt arrives. */
