@@ -51,9 +51,21 @@ extern "C"
 
 /*****************************************************************************************************/
 /**
- * @brief A state function or a queued task. Takes nothing, returns nothing.
+ * @brief State machine handle, declared ahead so a state function can take one.
  */
-typedef void (*seq_fn_t)(void);
+typedef struct seq_s seq_t;
+
+/*****************************************************************************************************/
+/**
+ * @brief A state function. Gets the handle it belongs to.
+ */
+typedef void (*seq_state_fn_t)(seq_t *handle);
+
+/*****************************************************************************************************/
+/**
+ * @brief A queued task. Gets whatever was handed to seq_task_add().
+ */
+typedef void (*seq_task_fn_t)(void *arg);
 
 /*****************************************************************************************************/
 /**
@@ -71,14 +83,14 @@ typedef enum
 /**
  * @brief State machine handle. Declare one per state machine.
  */
-typedef struct
+struct seq_s
 {
-    seq_fn_t next_fn;  /**< State function to run next.                    */
-    uint32_t time;     /**< Tick value when the current state was entered. */
-    uint32_t delay_ms; /**< Delay to wait before the next state runs.      */
-    uint8_t  entering; /**< Set until the next state has run once.         */
-
-} seq_t;
+    seq_state_fn_t next_fn;  /**< State function to run next.                    */
+    void          *user;     /**< Yours. Given to seq_init(), never read here.   */
+    uint32_t       time;     /**< Tick value when the current state was entered. */
+    uint32_t       delay_ms; /**< Delay to wait before the next state runs.      */
+    uint8_t        entering; /**< Set until the next state has run once.         */
+};
 
 /*
  * ****************************************************************************************************
@@ -88,9 +100,9 @@ typedef struct
 
 /*****************************************************************************************************/
 /**
- * @brief Initialize a handle and set the state it starts from.
+ * @brief Initialize a handle, set the state it starts from, and keep user for it.
  */
-void seq_init(seq_t *handle, seq_fn_t first_fn);
+void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *user);
 
 /*****************************************************************************************************/
 /**
@@ -102,7 +114,7 @@ void seq_loop(seq_t *handle);
 /**
  * @brief Choose the next state, optionally after a delay in milliseconds.
  */
-void seq_next(seq_t *handle, seq_fn_t next_fn, uint32_t delay_ms);
+void seq_next(seq_t *handle, seq_state_fn_t next_fn, uint32_t delay_ms);
 
 /*****************************************************************************************************/
 /**
@@ -136,9 +148,9 @@ void seq_task_flush(void);
 
 /*****************************************************************************************************/
 /**
- * @brief Add a task to the queue. Safe to call from an interrupt.
+ * @brief Queue a task with its argument. Safe to call from an interrupt.
  */
-seq_err_t seq_task_add(seq_fn_t task_fn);
+seq_err_t seq_task_add(seq_task_fn_t task_fn, void *arg);
 
 #ifdef __cplusplus
 }

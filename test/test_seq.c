@@ -41,12 +41,20 @@ static int      state_a_calls  = 0;
 static int      state_b_calls  = 0;
 static int      task_calls     = 0;
 static int      task_two_calls = 0;
+static int      requeue_limit  = 0;
+static int      task_total     = 0;
 
 static seq_t    test_seq;
 
+/* What the last task to run was handed, so a test can check it arrived. */
+static void    *last_task_arg = NULL;
+
+/* What the last state to run was handed. */
+static seq_t   *last_state_handle = NULL;
+
 /* Set by a test to have the fake interrupt queue this, once, from inside
    seq_task_add. NULL means no interrupt arrives. */
-static seq_fn_t queue_preempt_with = NULL;
+static seq_task_fn_t queue_preempt_with = NULL;
 
 /* Stands in for the real PRIMASK. Zero means interrupts are enabled. */
 int seq_test_primask = 0;
@@ -65,39 +73,57 @@ static void queue_drain(void);
 
 /*****************************************************************************************************/
 /**
- * @brief A state that counts how often it ran.
+ * @brief A state that counts how often it ran and remembers its handle.
  */
-static void state_a(void);
+static void state_a(seq_t *handle);
 
 /*****************************************************************************************************/
 /**
  * @brief A second state, so transitions can be observed.
  */
-static void state_b(void);
+static void state_b(seq_t *handle);
 
 /*****************************************************************************************************/
 /**
  * @brief A state that does nothing, used while draining the queue.
  */
-static void state_noop(void);
+static void state_noop(seq_t *handle);
 
 /*****************************************************************************************************/
 /**
- * @brief A queued task that counts how often it ran.
+ * @brief A state that counts a run against whatever handle->user points at.
  */
-static void task_one(void);
+static void state_counts_into_user(seq_t *handle);
+
+/*****************************************************************************************************/
+/**
+ * @brief A queued task that counts how often it ran and remembers its argument.
+ */
+static void task_one(void *arg);
 
 /*****************************************************************************************************/
 /**
  * @brief A second queued task, so two can be told apart.
  */
-static void task_two(void);
+static void task_two(void *arg);
+
+/*****************************************************************************************************/
+/**
+ * @brief A task that queues itself again, up to requeue_limit times.
+ */
+static void task_requeues(void *arg);
+
+/*****************************************************************************************************/
+/**
+ * @brief A task that adds what its argument points at to a running total.
+ */
+static void task_sums(void *arg);
 
 /*****************************************************************************************************/
 /**
  * @brief A state that gives up after five seconds, the way a real one would.
  */
-static void state_waits_then_times_out(void);
+static void state_waits_then_times_out(seq_t *handle);
 
 /*
  * ****************************************************************************************************
@@ -134,6 +160,10 @@ void setUp(void)
     state_b_calls      = 0;
     task_calls         = 0;
     task_two_calls     = 0;
+    requeue_limit      = 0;
+    task_total         = 0;
+    last_task_arg      = NULL;
+    last_state_handle  = NULL;
     queue_preempt_with = NULL;
     seq_test_primask   = 0;
 }
@@ -153,7 +183,7 @@ void tearDown(void)
 void test_init_runs_first_state(void)
 {
     test_tick = 100U;
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
     seq_loop(&test_seq);
 
     TEST_ASSERT_EQUAL_INT(1, state_a_calls);
@@ -166,7 +196,7 @@ void test_init_runs_first_state(void)
 void test_next_waits_for_the_delay(void)
 {
     test_tick = 1000U;
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
     seq_next(&test_seq, state_b, 200U);
 
     seq_loop(&test_seq);
@@ -188,7 +218,7 @@ void test_next_waits_for_the_delay(void)
 void test_delay_clears_after_running(void)
 {
     test_tick = 1000U;
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
     seq_next(&test_seq, state_b, 200U);
 
     test_tick = 1200U;
@@ -206,7 +236,7 @@ void test_delay_clears_after_running(void)
 void test_time_counts_from_state_entry(void)
 {
     test_tick = 500U;
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
 
     test_tick = 650U;
 
@@ -219,13 +249,123 @@ void test_time_counts_from_state_entry(void)
  */
 void test_queued_task_runs(void)
 {
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
 
-    TEST_ASSERT_EQUAL_INT(SEQ_ERR_NONE, seq_task_add(task_one));
+    TEST_ASSERT_EQUAL_INT(SEQ_ERR_NONE, seq_task_add(task_one, NULL));
 
     seq_loop(&test_seq);
 
     TEST_ASSERT_EQUAL_INT(1, task_calls);
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief A state is handed the handle it belongs to.
+ *
+ * Without it a state function has to name its machine through a file scope
+ * variable, which is what stops one set of states from driving two machines.
+ */
+void test_a_state_is_given_its_own_handle(void)
+{
+    seq_init(&test_seq, state_a, NULL);
+    seq_loop(&test_seq);
+
+    TEST_ASSERT_EQUAL_PTR_MESSAGE(&test_seq, last_state_handle,
+                                  "the state did not get the handle it belongs to");
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief One set of state functions drives two machines at once.
+ *
+ * This is the whole reason the handle is passed in. Each machine counts into
+ * its own total, through the pointer given to seq_init().
+ */
+void test_two_machines_share_one_state_function(void)
+{
+    seq_t first;
+    seq_t second;
+    int   first_runs  = 0;
+    int   second_runs = 0;
+
+    seq_init(&first, state_counts_into_user, &first_runs);
+    seq_init(&second, state_counts_into_user, &second_runs);
+
+    seq_loop(&first);
+    seq_loop(&first);
+    seq_loop(&second);
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(2, first_runs, "the first machine counted wrong");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, second_runs, "the second machine counted wrong");
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief A task is handed the argument it was queued with.
+ */
+void test_a_task_is_given_its_argument(void)
+{
+    int marker = 0;
+
+    seq_init(&test_seq, state_noop, NULL);
+
+    TEST_ASSERT_EQUAL_INT(SEQ_ERR_NONE, seq_task_add(task_one, &marker));
+    seq_loop(&test_seq);
+
+    TEST_ASSERT_EQUAL_PTR_MESSAGE(&marker, last_task_arg, "the argument did not arrive");
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief Each queued task keeps its own argument, in order.
+ *
+ * One argument stored per queue slot, not one shared by the queue. Sharing it
+ * would look right for a single task and go wrong the moment an interrupt
+ * queued a second one before the first had run.
+ */
+void test_every_queued_task_keeps_its_own_argument(void)
+{
+    /* Powers of ten, so any mix up gives a total that names what went wrong
+       rather than one that happens to add up anyway. */
+    int one   = 1;
+    int two   = 20;
+    int three = 300;
+
+    seq_init(&test_seq, state_noop, NULL);
+
+    (void)seq_task_add(task_sums, &one);
+    (void)seq_task_add(task_sums, &two);
+    (void)seq_task_add(task_sums, &three);
+
+    seq_loop(&test_seq);
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(3, task_calls, "the burst did not clear in one pass");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(321, task_total,
+                                  "a task ran with another task's argument");
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief An argument survives the queue wrapping around.
+ */
+void test_arguments_survive_the_queue_wrapping(void)
+{
+    int markers[20];
+
+    seq_init(&test_seq, state_noop, NULL);
+
+    for (int i = 0; i < 20; i++)
+    {
+        markers[i] = i;
+
+        TEST_ASSERT_EQUAL_INT(SEQ_ERR_NONE, seq_task_add(task_one, &markers[i]));
+        seq_loop(&test_seq);
+
+        TEST_ASSERT_EQUAL_PTR_MESSAGE(&markers[i], last_task_arg,
+                                      "an argument was lost as the queue wrapped");
+    }
+
+    TEST_ASSERT_EQUAL_INT(20, task_calls);
 }
 
 /*****************************************************************************************************/
@@ -238,34 +378,31 @@ void test_queue_refuses_when_full(void)
        not need a configuration of their own just to keep the queue small. */
     for (uint32_t i = 0U; i < (SEQ_MAX_TASKS - 1U); i++)
     {
-        TEST_ASSERT_EQUAL_INT_MESSAGE(SEQ_ERR_NONE, seq_task_add(task_one),
+        TEST_ASSERT_EQUAL_INT_MESSAGE(SEQ_ERR_NONE, seq_task_add(task_one, NULL),
                                       "refused a task while the queue had room");
     }
 
-    TEST_ASSERT_EQUAL_INT_MESSAGE(SEQ_ERR_FULL, seq_task_add(task_one),
+    TEST_ASSERT_EQUAL_INT_MESSAGE(SEQ_ERR_FULL, seq_task_add(task_one, NULL),
                                   "accepted more than SEQ_MAX_TASKS - 1 tasks");
 }
 
 /*****************************************************************************************************/
 /**
- * @brief One task runs per loop, so a burst cannot starve the state machine.
+ * @brief A whole burst is cleared in one pass.
+ *
+ * The last task of a burst should not have to wait one loop iteration per task
+ * ahead of it.
  */
-void test_one_task_runs_per_loop(void)
+void test_a_burst_runs_in_one_loop(void)
 {
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
 
-    (void)seq_task_add(task_one);
-    (void)seq_task_add(task_one);
-    (void)seq_task_add(task_one);
-
-    seq_loop(&test_seq);
-    TEST_ASSERT_EQUAL_INT(1, task_calls);
+    (void)seq_task_add(task_one, NULL);
+    (void)seq_task_add(task_one, NULL);
+    (void)seq_task_add(task_one, NULL);
 
     seq_loop(&test_seq);
-    TEST_ASSERT_EQUAL_INT(2, task_calls);
-
-    seq_loop(&test_seq);
-    TEST_ASSERT_EQUAL_INT(3, task_calls);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(3, task_calls, "the burst was not cleared in one pass");
 
     seq_loop(&test_seq);
     TEST_ASSERT_EQUAL_INT_MESSAGE(3, task_calls, "ran a task that was never queued");
@@ -277,11 +414,11 @@ void test_one_task_runs_per_loop(void)
  */
 void test_queue_wraps_around(void)
 {
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
 
     for (int i = 0; i < 20; i++)
     {
-        TEST_ASSERT_EQUAL_INT(SEQ_ERR_NONE, seq_task_add(task_one));
+        TEST_ASSERT_EQUAL_INT(SEQ_ERR_NONE, seq_task_add(task_one, NULL));
         seq_loop(&test_seq);
     }
 
@@ -294,14 +431,27 @@ void test_queue_wraps_around(void)
  */
 void test_null_arguments_are_refused(void)
 {
-    TEST_ASSERT_EQUAL_INT(SEQ_ERR_INVALID, seq_task_add(NULL));
+    TEST_ASSERT_EQUAL_INT(SEQ_ERR_INVALID, seq_task_add(NULL, NULL));
     TEST_ASSERT_EQUAL_UINT32(0U, seq_time(NULL));
 
-    seq_init(NULL, state_a);
+    seq_init(NULL, state_a, NULL);
     seq_loop(NULL);
     seq_next(NULL, state_a, 0U);
 
     TEST_ASSERT_EQUAL_INT(0, state_a_calls);
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief A NULL user pointer is allowed, since not every machine needs one.
+ */
+void test_a_null_user_pointer_is_fine(void)
+{
+    seq_init(&test_seq, state_a, NULL);
+    seq_loop(&test_seq);
+
+    TEST_ASSERT_EQUAL_INT(1, state_a_calls);
+    TEST_ASSERT_NULL(test_seq.user);
 }
 
 /*****************************************************************************************************/
@@ -315,7 +465,7 @@ void test_null_arguments_are_refused(void)
 void test_time_grows_while_a_state_runs(void)
 {
     test_tick = 1000U;
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
 
     for (uint32_t i = 0U; i < 5000U; i++)
     {
@@ -331,14 +481,16 @@ void test_time_grows_while_a_state_runs(void)
 /**
  * @brief The timeout pattern the whole library exists to support.
  *
- * Written the way a user writes it, not the way the code happens to work.
+ * Written the way a user writes it, not the way the code happens to work. The
+ * state reads the clock off the handle it was given, with nothing at file
+ * scope, which is how a state function is meant to look now.
  */
 void test_a_timeout_actually_fires(void)
 {
     uint32_t fired_at = 0U;
 
     test_tick = 0U;
-    seq_init(&test_seq, state_waits_then_times_out);
+    seq_init(&test_seq, state_waits_then_times_out, NULL);
 
     for (uint32_t i = 0U; i < 6000U; i++)
     {
@@ -363,7 +515,7 @@ void test_a_timeout_actually_fires(void)
 void test_time_restarts_on_a_real_transition(void)
 {
     test_tick = 1000U;
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
     seq_loop(&test_seq);
 
     test_tick = 1500U;
@@ -392,7 +544,7 @@ void test_time_restarts_on_a_real_transition(void)
 void test_a_delay_does_not_count_as_time_in_the_state(void)
 {
     test_tick = 1000U;
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
     seq_loop(&test_seq);
 
     seq_next(&test_seq, state_b, 200U);
@@ -416,11 +568,11 @@ void test_two_interrupts_do_not_lose_a_task(void)
 {
     queue_preempt_with = task_two;
 
-    TEST_ASSERT_EQUAL_INT(SEQ_ERR_NONE, seq_task_add(task_one));
+    TEST_ASSERT_EQUAL_INT(SEQ_ERR_NONE, seq_task_add(task_one, NULL));
 
     queue_preempt_with = NULL;
 
-    seq_init(&test_seq, state_noop);
+    seq_init(&test_seq, state_noop, NULL);
 
     for (uint32_t i = 0U; i < (SEQ_MAX_TASKS + 2U); i++)
     {
@@ -437,7 +589,7 @@ void test_two_interrupts_do_not_lose_a_task(void)
  */
 void test_stop_halts_the_machine(void)
 {
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
     seq_loop(&test_seq);
     TEST_ASSERT_TRUE(seq_running(&test_seq));
 
@@ -456,7 +608,7 @@ void test_stop_halts_the_machine(void)
  */
 void test_a_stopped_machine_can_be_restarted(void)
 {
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
     seq_stop(&test_seq);
 
     seq_next(&test_seq, state_b, 0U);
@@ -468,6 +620,25 @@ void test_a_stopped_machine_can_be_restarted(void)
 
 /*****************************************************************************************************/
 /**
+ * @brief Stopping a machine leaves its user pointer alone.
+ *
+ * It belongs to the caller, not to the run, so restarting must not need it to
+ * be handed over a second time.
+ */
+void test_stopping_keeps_the_user_pointer(void)
+{
+    int marker = 0;
+
+    seq_init(&test_seq, state_counts_into_user, &marker);
+    seq_stop(&test_seq);
+    seq_next(&test_seq, state_counts_into_user, 0U);
+    seq_loop(&test_seq);
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, marker, "the user pointer was lost across a stop");
+}
+
+/*****************************************************************************************************/
+/**
  * @brief Queued tasks still run while the machine is stopped.
  *
  * The queue belongs to the application, not to any one machine, so stopping a
@@ -475,10 +646,10 @@ void test_a_stopped_machine_can_be_restarted(void)
  */
 void test_a_stopped_machine_still_serves_the_queue(void)
 {
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
     seq_stop(&test_seq);
 
-    TEST_ASSERT_EQUAL_INT(SEQ_ERR_NONE, seq_task_add(task_one));
+    TEST_ASSERT_EQUAL_INT(SEQ_ERR_NONE, seq_task_add(task_one, NULL));
     seq_loop(&test_seq);
 
     TEST_ASSERT_EQUAL_INT(1, task_calls);
@@ -492,8 +663,8 @@ void test_the_queue_reports_how_deep_it_ever_got(void)
 {
     uint32_t before = seq_task_peak();
 
-    (void)seq_task_add(task_one);
-    (void)seq_task_add(task_one);
+    (void)seq_task_add(task_one, NULL);
+    (void)seq_task_add(task_one, NULL);
 
     TEST_ASSERT_MESSAGE(seq_task_peak() >= 2U, "peak depth was not recorded");
     TEST_ASSERT_MESSAGE(seq_task_peak() >= before, "peak depth went backwards");
@@ -505,10 +676,10 @@ void test_the_queue_reports_how_deep_it_ever_got(void)
  */
 void test_flush_empties_the_queue(void)
 {
-    seq_init(&test_seq, state_noop);
+    seq_init(&test_seq, state_noop, NULL);
 
-    (void)seq_task_add(task_one);
-    (void)seq_task_add(task_one);
+    (void)seq_task_add(task_one, NULL);
+    (void)seq_task_add(task_one, NULL);
 
     seq_task_flush();
 
@@ -540,8 +711,8 @@ void test_null_is_refused_by_the_new_calls(void)
  */
 void test_a_null_task_is_not_reported_as_a_full_queue(void)
 {
-    TEST_ASSERT_EQUAL_INT(SEQ_ERR_INVALID, seq_task_add(NULL));
-    TEST_ASSERT_EQUAL_INT_MESSAGE(SEQ_ERR_NONE, seq_task_add(task_one),
+    TEST_ASSERT_EQUAL_INT(SEQ_ERR_INVALID, seq_task_add(NULL, NULL));
+    TEST_ASSERT_EQUAL_INT_MESSAGE(SEQ_ERR_NONE, seq_task_add(task_one, NULL),
                                   "a real task was refused after a NULL one");
 }
 
@@ -555,7 +726,7 @@ void test_a_null_task_is_not_reported_as_a_full_queue(void)
 void test_time_is_zero_once_stopped(void)
 {
     test_tick = 1000U;
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
     seq_loop(&test_seq);
 
     test_tick = 1500U;
@@ -567,6 +738,50 @@ void test_time_is_zero_once_stopped(void)
 
     test_tick = 2000U;
     TEST_ASSERT_EQUAL_UINT32(0U, seq_time(&test_seq));
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief A task that queues another does not hold the loop for ever.
+ *
+ * This is why the drain stops at the queue's end as it was on entry, rather
+ * than at empty. Draining to empty would spin here and the state would never
+ * run again, which is the one thing the loop exists to do.
+ */
+void test_a_task_that_requeues_itself_does_not_trap_the_loop(void)
+{
+    seq_init(&test_seq, state_a, NULL);
+
+    requeue_limit = 5;
+    (void)seq_task_add(task_requeues, NULL);
+
+    seq_loop(&test_seq);
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, task_calls, "the requeued task ran in the same pass");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, state_a_calls, "the state never got its turn");
+
+    seq_loop(&test_seq);
+    TEST_ASSERT_EQUAL_INT(2, task_calls);
+    TEST_ASSERT_EQUAL_INT(2, state_a_calls);
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief Tasks queued while a burst runs wait for the next pass.
+ */
+void test_work_queued_during_a_burst_waits(void)
+{
+    seq_init(&test_seq, state_noop, NULL);
+
+    requeue_limit = 1;
+    (void)seq_task_add(task_requeues, NULL);
+    (void)seq_task_add(task_one, NULL);
+
+    seq_loop(&test_seq);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(2, task_calls, "the first pass ran the wrong number of tasks");
+
+    seq_loop(&test_seq);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(3, task_calls, "the task queued during the burst never ran");
 }
 
 /*****************************************************************************************************/
@@ -584,8 +799,17 @@ int main(void)
     RUN_TEST(test_delay_clears_after_running);
     RUN_TEST(test_time_counts_from_state_entry);
     RUN_TEST(test_queued_task_runs);
+    RUN_TEST(test_a_state_is_given_its_own_handle);
+    RUN_TEST(test_two_machines_share_one_state_function);
+    RUN_TEST(test_a_task_is_given_its_argument);
+    RUN_TEST(test_every_queued_task_keeps_its_own_argument);
+    RUN_TEST(test_arguments_survive_the_queue_wrapping);
+    RUN_TEST(test_a_null_user_pointer_is_fine);
+    RUN_TEST(test_stopping_keeps_the_user_pointer);
     RUN_TEST(test_queue_refuses_when_full);
-    RUN_TEST(test_one_task_runs_per_loop);
+    RUN_TEST(test_a_burst_runs_in_one_loop);
+    RUN_TEST(test_a_task_that_requeues_itself_does_not_trap_the_loop);
+    RUN_TEST(test_work_queued_during_a_burst_waits);
     RUN_TEST(test_queue_wraps_around);
     RUN_TEST(test_null_arguments_are_refused);
     RUN_TEST(test_time_grows_while_a_state_runs);
@@ -619,7 +843,7 @@ static void queue_drain(void)
 {
     seq_t scratch;
 
-    seq_init(&scratch, state_noop);
+    seq_init(&scratch, state_noop, NULL);
 
     for (uint32_t i = 0U; i < (SEQ_MAX_TASKS + 1U); i++)
     {
@@ -629,10 +853,11 @@ static void queue_drain(void)
 
 /*****************************************************************************************************/
 /**
- * @brief A state that counts how often it ran.
+ * @brief A state that counts how often it ran and remembers its handle.
  */
-static void state_a(void)
+static void state_a(seq_t *handle)
 {
+    last_state_handle = handle;
     state_a_calls++;
 }
 
@@ -640,8 +865,9 @@ static void state_a(void)
 /**
  * @brief A second state, so transitions can be observed.
  */
-static void state_b(void)
+static void state_b(seq_t *handle)
 {
+    last_state_handle = handle;
     state_b_calls++;
 }
 
@@ -649,16 +875,32 @@ static void state_b(void)
 /**
  * @brief A state that does nothing, used while draining the queue.
  */
-static void state_noop(void)
+static void state_noop(seq_t *handle)
 {
+    (void)handle;
 }
 
 /*****************************************************************************************************/
 /**
- * @brief A queued task that counts how often it ran.
+ * @brief A state that counts a run against whatever handle->user points at.
  */
-static void task_one(void)
+static void state_counts_into_user(seq_t *handle)
 {
+    /* Guarded so a state handed the wrong thing fails an assertion rather than
+       bringing the whole suite down with it. */
+    if ((handle != NULL) && (handle->user != NULL))
+    {
+        (*(int *)handle->user)++;
+    }
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief A queued task that counts how often it ran and remembers its argument.
+ */
+static void task_one(void *arg)
+{
+    last_task_arg = arg;
     task_calls++;
 }
 
@@ -666,20 +908,53 @@ static void task_one(void)
 /**
  * @brief A second queued task, so two can be told apart.
  */
-static void task_two(void)
+static void task_two(void *arg)
 {
+    (void)arg;
     task_two_calls++;
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief A task that queues itself again, up to requeue_limit times.
+ */
+static void task_requeues(void *arg)
+{
+    (void)arg;
+    task_calls++;
+
+    if (requeue_limit > 0)
+    {
+        requeue_limit--;
+        (void)seq_task_add(task_requeues, NULL);
+    }
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief A task that adds its argument to a running total.
+ */
+static void task_sums(void *arg)
+{
+    task_calls++;
+
+    /* Same reason as state_counts_into_user: a wrong argument should show up
+       as a total that does not add up, not as a crash. */
+    if (arg != NULL)
+    {
+        task_total += *(const int *)arg;
+    }
 }
 
 /*****************************************************************************************************/
 /**
  * @brief A state that gives up after five seconds, the way a real one would.
  */
-static void state_waits_then_times_out(void)
+static void state_waits_then_times_out(seq_t *handle)
 {
-    if (seq_time(&test_seq) > 5000U)
+    if (seq_time(handle) > 5000U)
     {
-        seq_next(&test_seq, state_b, 0U);
+        seq_next(handle, state_b, 0U);
     }
 }
 
@@ -694,10 +969,10 @@ void seq_test_hook(void)
 {
     if ((queue_preempt_with != NULL) && (seq_test_primask == 0))
     {
-        seq_fn_t pending = queue_preempt_with;
+        seq_task_fn_t pending = queue_preempt_with;
 
         queue_preempt_with = NULL;
-        (void)seq_task_add(pending);
+        (void)seq_task_add(pending, NULL);
     }
 }
 
@@ -718,9 +993,9 @@ void seq_test_set_primask(uint32_t value)
 
     if ((seq_test_primask == 0) && (queue_preempt_with != NULL))
     {
-        seq_fn_t pending = queue_preempt_with;
+        seq_task_fn_t pending = queue_preempt_with;
 
         queue_preempt_with = NULL;
-        (void)seq_task_add(pending);
+        (void)seq_task_add(pending, NULL);
     }
 }

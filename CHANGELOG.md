@@ -17,7 +17,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   | Was | Is now |
   |---|---|
   | `fsm.h`, `fsm.c`, `fsm_config.h` | `seq.h`, `seq.c`, `seq_config.h` |
-  | `fsm_t`, `fsm_fn_t`, `fsm_err_t` | `seq_t`, `seq_fn_t`, `seq_err_t` |
+  | `fsm_t`, `fsm_err_t` | `seq_t`, `seq_err_t` |
+  | `fsm_fn_t` | `seq_state_fn_t` and `seq_task_fn_t` |
   | `fsm_init`, `fsm_loop`, `fsm_next`, `fsm_time` | `seq_init`, `seq_loop`, `seq_next`, `seq_time` |
   | `fsm_task_add` | `seq_task_add` |
   | `FSM_MAX_TASKS`, `FSM_ERR_NONE`, `FSM_ERR_FULL` | `SEQ_MAX_TASKS`, `SEQ_ERR_NONE`, `SEQ_ERR_FULL` |
@@ -26,7 +27,27 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - Sources moved to `src/`, flat, with the configuration beside them.
 - `seq.h` no longer includes `main.h`. Include it yourself if you relied on that.
-- State functions take `seq_fn_t` instead of `const void (*)(void)`.
+- **State functions and tasks now take a parameter.** A state is handed the
+  handle it belongs to, and a task is handed whatever it was queued with:
+
+  ```c
+  void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *user);
+  seq_err_t seq_task_add(seq_task_fn_t task_fn, void *arg);
+
+  void my_state(seq_t *handle);
+  void my_task(void *arg);
+  ```
+
+  Without this, a state function has to name its machine through a file scope
+  variable, so one set of states cannot drive two machines, and an interrupt
+  cannot say which peripheral its work belongs to. Both were solved with globals
+  before, and neither needs one now.
+
+  `seq_t` gains a `user` field, set by `seq_init()` and never read by the
+  library, so a state reaches its own data through `handle->user`.
+
+- The single `fsm_fn_t` became `seq_state_fn_t` and `seq_task_fn_t`, because a
+  state and a task are not the same thing and no longer have the same shape.
 - Licence changed to Apache-2.0.
 
 ### Added
@@ -42,4 +63,5 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - `seq_time()` returned zero inside a running state, so every timeout built on it silently never fired.
 - A queued task could be lost when two interrupts called `seq_task_add()` at the same moment. `SEQ_ERR_NONE` was returned for both.
 - `seq_time()` now returns 0 while the sequence is stopped, rather than a number that keeps climbing for a state nothing is running.
+- `seq_loop()` now clears a whole burst of queued tasks in one pass rather than one per iteration, so the last task of a burst no longer waits behind every task ahead of it. It stops at the queue's end as it was on entry, so a task that queues more work cannot hold the loop and starve the states.
 - `SEQ_MAX_TASKS` below 2 is refused at compile time. One slot is always left free, so a smaller queue could never accept anything, and it failed silently.

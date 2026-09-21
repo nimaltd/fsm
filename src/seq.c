@@ -39,16 +39,22 @@
  * ****************************************************************************************************
 */
 
+/* A plain alias, so __IO lands on the pointer rather than on what it points at.
+   Spelling the member "__IO void *arg[]" would give an array of pointers to
+   volatile void, which says the opposite of what the queue needs. */
+typedef void *seq_arg_t;
+
 /*****************************************************************************************************/
 /**
  * @brief Task queue shared between interrupt context and the main loop.
  */
 typedef struct
 {
-    __IO seq_fn_t fn[SEQ_MAX_TASKS]; /**< Circular buffer of queued tasks. */
-    __IO uint32_t head;              /**< Slot the producer writes next.   */
-    __IO uint32_t tail;              /**< Slot the consumer reads next.    */
-    __IO uint32_t peak;              /**< Deepest the queue has ever been. */
+    __IO seq_task_fn_t fn[SEQ_MAX_TASKS];  /**< Circular buffer of queued tasks. */
+    __IO seq_arg_t     arg[SEQ_MAX_TASKS]; /**< The argument each one gets.      */
+    __IO uint32_t      head;               /**< Slot the producer writes next.   */
+    __IO uint32_t      tail;               /**< Slot the consumer reads next.    */
+    __IO uint32_t      peak;               /**< Deepest the queue has ever been. */
 
 } seq_queue_t;
 
@@ -76,7 +82,7 @@ static void seq_enter(seq_t *handle);
 
 /*****************************************************************************************************/
 /**
- * @brief Run one queued task if the queue is not empty.
+ * @brief Run the tasks that were queued when the call began.
  */
 static void seq_queue_run(void);
 
@@ -88,14 +94,19 @@ static void seq_queue_run(void);
 
 /*****************************************************************************************************/
 /**
- * @brief Initialize a handle and set the state it starts from.
+ * @brief Initialize a handle, set the state it starts from, and keep user for it.
  *
  * The machine runs first_fn on the next call to seq_loop(), with no delay.
  *
+ * user is never read by this library. It is there so one set of state functions
+ * can drive several machines: each state is handed its own handle, and reaches
+ * whatever belongs to that machine through handle->user.
+ *
  * @param[out] handle    Handle to initialize. Must not be NULL.
  * @param[in]  first_fn  State function to start from. Must not be NULL.
+ * @param[in]  user      Anything the state functions need. May be NULL.
  */
-void seq_init(seq_t *handle, seq_fn_t first_fn)
+void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *user)
 {
     assert_param(handle != NULL);
     assert_param(first_fn != NULL);
@@ -103,6 +114,7 @@ void seq_init(seq_t *handle, seq_fn_t first_fn)
     if ((handle != NULL) && (first_fn != NULL))
     {
         handle->next_fn  = first_fn;
+        handle->user     = user;
         handle->delay_ms = 0U;
         handle->time     = HAL_GetTick(); /* Sane value for seq_time() before the first run. */
         handle->entering = 1U;
@@ -132,7 +144,7 @@ void seq_loop(seq_t *handle)
             if (handle->delay_ms == 0U)
             {
                 seq_enter(handle);
-                handle->next_fn();
+                handle->next_fn(handle);
             }
             else if ((HAL_GetTick() - handle->time) >= handle->delay_ms)
             {
@@ -140,7 +152,7 @@ void seq_loop(seq_t *handle)
                    free to ask for a new one. */
                 handle->delay_ms = 0U;
                 seq_enter(handle);
-                handle->next_fn();
+                handle->next_fn(handle);
             }
             else
             {
@@ -161,7 +173,7 @@ void seq_loop(seq_t *handle)
  * @param[in]     next_fn   State function to run next. Must not be NULL.
  * @param[in]     delay_ms  Milliseconds to wait before running next_fn.
  */
-void seq_next(seq_t *handle, seq_fn_t next_fn, uint32_t delay_ms)
+void seq_next(seq_t *handle, seq_state_fn_t next_fn, uint32_t delay_ms)
 {
     assert_param(handle != NULL);
     assert_param(next_fn != NULL);
@@ -275,16 +287,19 @@ void seq_task_flush(void)
 
 /*****************************************************************************************************/
 /**
- * @brief Add a task to the queue.
+ * @brief Queue a task with its argument.
  *
  * Safe to call from an interrupt. The task runs later, from seq_loop(), which
- * is what keeps the interrupt handler short.
+ * is what keeps the interrupt handler short. The argument is copied into the
+ * queue, but whatever it points at is not, so it has to outlive the call: a
+ * peripheral handle or a static buffer is fine, a local variable is not.
  *
  * @param[in] task_fn  Task to queue. Must not be NULL.
+ * @param[in] arg      Handed to the task when it runs. May be NULL.
  * @return SEQ_ERR_NONE if the task was queued, SEQ_ERR_FULL if the queue is
  *         full, or SEQ_ERR_INVALID if task_fn is NULL.
  */
-seq_err_t seq_task_add(seq_fn_t task_fn)
+seq_err_t seq_task_add(seq_task_fn_t task_fn, void *arg)
 {
     seq_err_t err = SEQ_ERR_INVALID;
 
@@ -312,10 +327,13 @@ seq_err_t seq_task_add(seq_fn_t task_fn)
                from an empty one, since both would otherwise have head == tail. */
             if (next_head != seq_queue.tail)
             {
-                seq_queue.fn[head] = task_fn;
+                seq_queue.fn[head]  = task_fn;
+                seq_queue.arg[head] = arg;
 
                 /* The slot has to be visible before head publishes it, or the
-                   main loop can read a stale pointer out of it. */
+                   main loop can read a stale pointer out of it. Both members
+                   are written first, so a consumer that sees the new head sees
+                   the task and its argument together. */
                 __DMB();
 
                 seq_queue.head = next_head;
@@ -364,10 +382,11 @@ static void seq_enter(seq_t *handle)
 
 /*****************************************************************************************************/
 /**
- * @brief Run one queued task if the queue is not empty.
+ * @brief Run the tasks that were queued when this call began.
  *
- * Only one task runs per call. That keeps a burst of queued work from starving
- * the state machine, since seq_loop() gets to run a state in between.
+ * A burst is cleared in one pass, so the last task of a burst does not wait a
+ * loop iteration per task ahead of it. Work queued while those run waits for
+ * the next pass, which is what stops the state machine from being starved.
  */
 static void seq_queue_run(void)
 {
@@ -379,20 +398,34 @@ static void seq_queue_run(void)
        the queue as one fuller than it is, which can refuse a task but cannot
        corrupt one. Disabling interrupts here would only lengthen interrupt
        latency. It holds only while seq_loop() has a single caller. */
-    if (seq_queue.tail != seq_queue.head)
+    /* Where the queue ended when this call began. Draining to a fixed point
+       rather than to "empty" is what bounds the loop: anything queued while
+       these tasks run, including by a task queueing another, waits for the
+       next pass. Draining to empty would never return if a task kept
+       requeueing itself, or if an interrupt produced faster than this drains,
+       and the state machine would never run again. */
+    uint32_t upto = seq_queue.head;
+
+    while (seq_queue.tail != upto)
     {
-        uint32_t tail    = seq_queue.tail;
-        seq_fn_t task_fn = seq_queue.fn[tail];
+        uint32_t      tail     = seq_queue.tail;
+        seq_task_fn_t task_fn  = seq_queue.fn[tail];
+        void         *task_arg = seq_queue.arg[tail];
 
         /* Release the slot before running the task, so the task is free to
-           queue another one without hitting a queue that is falsely full. */
+           queue another one without hitting a queue that is falsely full.
+           Both members are read first. The free slot rule means a producer
+           cannot reach this slot again before the next pass of this loop, so
+           reading the argument afterwards would in fact still be correct, but
+           it would be correct only because of an invariant kept elsewhere in
+           this file. Reading both up front is correct on its own. */
         seq_queue.tail = (tail + 1U) % SEQ_MAX_TASKS;
 
         __DMB();
 
         if (task_fn != NULL)
         {
-            task_fn();
+            task_fn(task_arg);
         }
     }
 }

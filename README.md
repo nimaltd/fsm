@@ -15,8 +15,11 @@ It is around 100 lines of actual code, it needs no RTOS, and it works on any STM
 ## ✨ What you get
 
 - Non blocking state transitions with millisecond resolution
-- A lock free task queue that is safe to use from an interrupt
-- One task runs per loop, so a burst of interrupts cannot starve your sequence
+- A lock free task queue that is safe to use from an interrupt, and carries
+  an argument, so an interrupt can say which peripheral the work is for
+- One set of state functions can drive several machines, since each state is
+  handed the handle it belongs to
+- A burst of queued work clears in one pass, without ever starving your sequence
 - No dynamic memory, no RTOS, no dependencies beyond the HAL tick
 - Unit tested on every commit
 
@@ -133,37 +136,81 @@ One slot is always kept free so a full queue can be told apart from an empty one
 
 seq_t my_seq;
 
-void state_idle(void)
+void state_idle(seq_t *seq)
 {
     if (something_happened())
     {
-        seq_next(&my_seq, state_measure, 0);
+        seq_next(seq, state_measure, 0);
     }
 }
 
-void state_measure(void)
+void state_measure(seq_t *seq)
 {
     start_measurement();
 
     /* Come back in 200 ms, without blocking anything. */
-    seq_next(&my_seq, state_report, 200);
+    seq_next(seq, state_report, 200);
 }
 
-void state_report(void)
+void state_report(seq_t *seq)
 {
     send_result();
-    seq_next(&my_seq, state_idle, 0);
+    seq_next(seq, state_idle, 0);
 }
 
 int main(void)
 {
     /* ... HAL init ... */
 
-    seq_init(&my_seq, state_idle);
+    seq_init(&my_seq, state_idle, NULL);
 
     while (1)
     {
         seq_loop(&my_seq);
+    }
+}
+```
+
+Each state is given the handle it belongs to, so it never has to name the machine
+it is running on. That is what lets the same three functions run four sensor
+channels: four handles, one set of states.
+
+### Giving a machine something of its own
+
+The last argument to `seq_init()` is yours. The library keeps it and hands it
+back through the handle, and never looks inside it.
+
+```c
+typedef struct
+{
+    UART_HandleTypeDef *uart;
+    uint8_t             address;
+} channel_t;
+
+channel_t channels[4];
+seq_t     machines[4];
+
+void state_measure(seq_t *seq)
+{
+    channel_t *channel = seq->user;
+
+    start_measurement(channel->uart, channel->address);
+    seq_next(seq, state_report, 200);
+}
+
+int main(void)
+{
+    for (int i = 0; i < 4; i++)
+    {
+        seq_init(&machines[i], state_measure, &channels[i]);
+    }
+
+    while (1)
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            seq_loop(&machines[i]);
+        }
     }
 }
 ```
@@ -173,9 +220,10 @@ int main(void)
 This is the part that keeps your ISRs honest. The handler queues a function and returns immediately, and the work itself runs later from the main loop.
 
 ```c
-void button_pressed(void)
+void button_pressed(void *arg)
 {
     /* Runs from seq_loop(), so you can take your time here. */
+    (void)arg;
     read_sensor();
     update_display();
 }
@@ -184,10 +232,31 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
     if (GPIO_Pin == B1_Pin)
     {
-        seq_task_add(button_pressed);
+        seq_task_add(button_pressed, NULL);
     }
 }
 ```
+
+The argument is there for when one task serves several sources. A UART callback
+already knows which port it is:
+
+```c
+void handle_line(void *arg)
+{
+    UART_HandleTypeDef *uart = arg;
+
+    parse_and_reply(uart);
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    seq_task_add(handle_line, huart);
+}
+```
+
+Only the pointer is copied into the queue, not what it points at, so it has to
+outlive the call. A peripheral handle or a static buffer is fine. The address of
+a local variable in the interrupt handler is not.
 
 ### What is safe to call from an interrupt
 
@@ -198,14 +267,14 @@ Everything else expects to be called from the same place as `seq_loop()`, normal
 So changing state from an interrupt looks like this, not like a direct call:
 
 ```c
-static void on_button(void)
+static void on_button(void *arg)
 {
-    seq_next(&my_seq, state_pressed, 500);   /* main loop, safe */
+    seq_next(arg, state_pressed, 500);       /* main loop, safe */
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-    seq_task_add(on_button);                 /* the interrupt only hands over */
+    seq_task_add(on_button, &my_seq);        /* the interrupt only hands over */
 }
 ```
 
@@ -215,13 +284,13 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 | Function | What it does |
 |---|---|
-| `void seq_init(seq_t *handle, seq_fn_t first_fn)` | Set up a handle and the state it starts from |
+| `void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *user)` | Set up a handle, the state it starts from, and what it carries |
 | `void seq_loop(seq_t *handle)` | Run queued tasks and the current state. Call it from your main loop |
-| `void seq_next(seq_t *handle, seq_fn_t next_fn, uint32_t delay_ms)` | Choose the next state, optionally after a delay |
+| `void seq_next(seq_t *handle, seq_state_fn_t next_fn, uint32_t delay_ms)` | Choose the next state, optionally after a delay |
 | `uint32_t seq_time(const seq_t *handle)` | How long the machine has been in the current state |
 | `void seq_stop(seq_t *handle)` | Halt the machine. Nothing runs until the next `seq_next()` |
 | `bool seq_running(const seq_t *handle)` | False once stopped |
-| `seq_err_t seq_task_add(seq_fn_t task_fn)` | Queue a task. Safe to call from an interrupt |
+| `seq_err_t seq_task_add(seq_task_fn_t task_fn, void *arg)` | Queue a task with its argument. Safe to call from an interrupt |
 | `uint32_t seq_task_peak(void)` | The most tasks ever queued at once |
 | `void seq_task_flush(void)` | Drop everything queued |
 
@@ -230,6 +299,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 Use `seq_task_peak()` to size `SEQ_MAX_TASKS` by measurement. A full queue is reported to the caller, but that caller is usually an interrupt handler where nobody checks a return value, so the peak is in practice the only way to find out you were close to overflowing.
 
 Stopping does not stop the task queue. Tasks belong to the application rather than to any one machine, so `seq_loop()` keeps serving them even on a stopped machine.
+
+Each `seq_loop()` runs the tasks that were queued when it began, so a burst clears in one pass instead of one task per iteration. Anything queued while those tasks run, including by a task queueing another, waits for the next pass. That is deliberate: draining until the queue is empty would never return if a task kept requeueing itself, or if an interrupt produced faster than the loop could drain, and your states would stop running.
 
 ---
 
@@ -263,7 +334,19 @@ Nothing in your state functions needs to change, but three things moved:
 - `seq_config.h` now ships in `src/`. Copy it once and that copy is yours from then on
 - `seq.h` no longer includes `main.h`. If a file of yours relied on that, include `main.h` yourself
 
-The function signatures now use `seq_fn_t` instead of `const void (*)(void)`. Existing calls compile unchanged, and the old form produced a warning on some compilers, which this fixes.
+Your state functions do need one change each. A state now takes the handle it belongs to, and a task takes the argument it was queued with:
+
+```c
+void my_state(void);          /* was */
+void my_state(seq_t *seq);    /* is now */
+
+void my_task(void);           /* was */
+void my_task(void *arg);      /* is now */
+```
+
+`seq_init()` gained a third argument and `seq_task_add()` a second. Pass `NULL` to both if you have nothing to carry, and nothing else changes.
+
+The compiler finds every one of these for you, which is the point of doing it this way rather than leaving the old shape available beside the new one.
 
 ---
 
