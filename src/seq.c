@@ -22,9 +22,7 @@
 */
 
 #include "seq.h"
-
 #include <stddef.h>
-
 #include "main.h"
 
 /* A place for the tests to simulate a higher priority interrupt arriving at the
