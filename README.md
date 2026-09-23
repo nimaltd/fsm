@@ -45,7 +45,7 @@ the tests refers to this repository, not to an installed copy.
 Install it once per machine:
 
 ```bash
-pip install https://github.com/nimaltd/stm32-installer/archive/refs/heads/main.zip
+pip install stm32-installer
 ```
 
 Then, from the root of your STM32 project:
