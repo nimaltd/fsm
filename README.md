@@ -33,63 +33,70 @@ test/   host unit tests, run on a PC
 ```
 
 When the library is installed into a project it is flattened: `seq.h`, `seq.c` and
-`seq_config.h` sit in one folder with no `src/`, `test/` or `install.py`. The
-sections below about the installer and the tests refer to this repository, not to
-an installed copy.
+`seq_config.h` sit in one folder with no `src/` or `test/`. The section below about
+the tests refers to this repository, not to an installed copy.
 
 ---
 
 ## ⚙️ Installing it
 
-### The easy way
+[stm32-installer](https://github.com/nimaltd/stm32-installer) copies the library into your project, creates your `seq_config.h`, and adds it to your CMake, STM32CubeIDE, Keil or IAR project for you. Your project file is backed up first. Run it from the root of your STM32 project.
 
-Download this repository into your STM32 project, then from the project root:
+### With pip
+
+Once per machine:
 
 ```bash
-python sequencer/install.py
+pip install https://github.com/nimaltd/stm32-installer/archive/refs/heads/main.zip
 ```
 
-It flattens the repository into a plain library folder, creates your `seq_config.h`, and adds the library to your CMake, STM32CubeIDE, Keil or IAR project for you. Your project file is backed up first.
+Then:
 
-Nothing is installed on your machine and there is no pip step. The installer is fetched into a temporary folder, used, and deleted.
-
-### Or install it without downloading the repository
-
-Run this from the root of your STM32 project. One line, and it knows which library it belongs to because that is the repository it came from.
-
-**Windows, Command Prompt:**
-
-```bat
-curl -fsSL https://raw.githubusercontent.com/nimaltd/sequencer/master/install.py -o install.py && python install.py
+```bash
+stm32-installer nimaltd/sequencer
 ```
+
+### Without pip
 
 **Windows, PowerShell:**
 
 ```powershell
-irm https://raw.githubusercontent.com/nimaltd/sequencer/master/install.py -OutFile install.py; python install.py
+irm https://raw.githubusercontent.com/nimaltd/stm32-installer/main/install.py | python - nimaltd/sequencer
 ```
 
-PowerShell needs `irm` here rather than `curl`, because in PowerShell `curl` is an alias for a different command that does not understand those options.
+**Windows, Command Prompt:**
+
+```bat
+curl -fsSL https://raw.githubusercontent.com/nimaltd/stm32-installer/main/install.py | python - nimaltd/sequencer
+```
 
 **Linux and macOS:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nimaltd/sequencer/master/install.py -o install.py && python3 install.py
+curl -fsSL https://raw.githubusercontent.com/nimaltd/stm32-installer/main/install.py | python3 - nimaltd/sequencer
 ```
 
-It asks which folder to use, then downloads only the files the library actually needs, not the whole repository. Afterwards it deletes itself, so your project is left with the library and nothing else.
+Nothing is installed on your machine and nothing is left behind: the installer is fetched into a temporary folder, run, and deleted.
 
-To update later, run the same one line again.
+### From a downloaded zip
 
-### Pinning a version
-
-By default you get the newest code on `master`. To hold a project on one release instead, add `--ref` with a tag:
+Downloaded this repository with **Code**, **Download ZIP**? Either way of running the installer takes the zip in place of `nimaltd/sequencer`, with no need to unpack it:
 
 ```bash
-python install.py --ref 2.0.0
+stm32-installer D:/Downloads/sequencer-master.zip
 ```
 
-A branch name or a commit hash works there too, which is useful when you need exactly what you built with last time.
+Only the files the library needs are copied into your project, and the zip is left alone. An unpacked folder works the same way. [stm32-installer's README](https://github.com/nimaltd/stm32-installer#installing-a-library) has every option, and how to install on a machine with no internet at all.
+
+### Updating, and pinning a version
+
+Run the same command again. The code is replaced and your `seq_config.h` is kept.
+
+By default you get the newest code on `master`. To hold a project on one release, add `--ref` with a tag, a branch or a commit:
+
+```bash
+stm32-installer nimaltd/sequencer --ref 2.0.0
+```
 
 ### Or copy the files in by hand
 
@@ -113,7 +120,7 @@ target_link_libraries(your_app PRIVATE nimaltd::seq)
 target_include_directories(seq PRIVATE ${CMAKE_SOURCE_DIR}/Core/Inc)
 ```
 
-`python install.py` avoids that last line entirely: it writes an INTERFACE target instead, whose sources compile as part of your own target and inherit everything it has.
+`stm32-installer` avoids that last line entirely: it writes an INTERFACE target instead, whose sources compile as part of your own target and inherit everything it has.
 
 ---
 

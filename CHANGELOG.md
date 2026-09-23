@@ -63,7 +63,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - `SEQ_ERR_INVALID`, returned by `seq_task_add()` when the task pointer is NULL, so a bad argument is no longer reported as a full queue.
 - `seq_task_peak()` and `seq_task_flush()`, to size `SEQ_MAX_TASKS` by measurement and to drop queued work.
 - Host unit tests, run with `python test/run_tests.py`.
-- CMake build, and `install.py` to install the library into a project.
+- CMake build, and a `library.yml` for installing with stm32-installer, from
+  GitHub or from a downloaded zip.
 
 ### Fixed
 

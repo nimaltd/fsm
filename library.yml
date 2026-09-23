@@ -1,9 +1,9 @@
 # Read by stm32-installer. See https://github.com/nimaltd/stm32-installer
 #
-# Keep the version in step with the one in the source file headers.
+# There is no version here. The installer reads it from the @version tag in
+# seq.h, so the source files are the only place it is written.
 
 name: sequencer
-version: 2.0.0
 description: Non blocking state sequencer and interrupt task queue for STM32
 repository: https://github.com/nimaltd/sequencer
 license: Apache-2.0
@@ -20,6 +20,7 @@ provides: []
 
 # What the project has to offer before this library works.
 requires:
+  installer: 1.1.0    # the oldest stm32-installer that reads this file
   libraries: []       # other NimaLTD libraries, by name
   hal: true           # uses HAL_GetTick
   cmsis: true         # uses __DMB
