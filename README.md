@@ -40,53 +40,29 @@ the tests refers to this repository, not to an installed copy.
 
 ## ⚙️ Installing it
 
-[stm32-installer](https://github.com/nimaltd/stm32-installer) copies the library into your project, creates your `seq_config.h`, and adds it to your CMake, STM32CubeIDE, Keil or IAR project for you. Your project file is backed up first. Run it from the root of your STM32 project.
+[stm32-installer](https://github.com/nimaltd/stm32-installer) copies the library into your project, creates your `seq_config.h`, and adds it to your CMake, STM32CubeIDE, Keil or IAR project for you. Your project file is backed up first.
 
-### With pip
-
-Once per machine:
+Install it once per machine:
 
 ```bash
 pip install https://github.com/nimaltd/stm32-installer/archive/refs/heads/main.zip
 ```
 
-Then:
+Then, from the root of your STM32 project:
 
 ```bash
 stm32-installer nimaltd/sequencer
 ```
 
-### Without pip
-
-**Windows, PowerShell:**
-
-```powershell
-irm https://raw.githubusercontent.com/nimaltd/stm32-installer/main/install.py | python - nimaltd/sequencer
-```
-
-**Windows, Command Prompt:**
-
-```bat
-curl -fsSL https://raw.githubusercontent.com/nimaltd/stm32-installer/main/install.py | python - nimaltd/sequencer
-```
-
-**Linux and macOS:**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/nimaltd/stm32-installer/main/install.py | python3 - nimaltd/sequencer
-```
-
-Nothing is installed on your machine and nothing is left behind: the installer is fetched into a temporary folder, run, and deleted.
-
 ### From a downloaded zip
 
-Downloaded this repository with **Code**, **Download ZIP**? Either way of running the installer takes the zip in place of `nimaltd/sequencer`, with no need to unpack it:
+Downloaded this repository with **Code**, **Download ZIP**? Give the installer the zip in place of `nimaltd/sequencer`, with no need to unpack it:
 
 ```bash
 stm32-installer D:/Downloads/sequencer-master.zip
 ```
 
-Only the files the library needs are copied into your project, and the zip is left alone. An unpacked folder works the same way. [stm32-installer's README](https://github.com/nimaltd/stm32-installer#installing-a-library) has every option, and how to install on a machine with no internet at all.
+Only the files the library needs are copied into your project, and the zip is left alone. An unpacked folder works the same way. [stm32-installer's README](https://github.com/nimaltd/stm32-installer#installing-a-library) has every option, how to run it without pip, and how to install on a machine with no internet at all.
 
 ### Updating, and pinning a version
 
