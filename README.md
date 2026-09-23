@@ -136,33 +136,33 @@ One slot is always kept free so a full queue can be told apart from an empty one
 
 seq_t my_seq;
 
-void state_idle(seq_t *seq)
+void state_idle(seq_t *seq, void *arg)
 {
     if (something_happened())
     {
-        seq_next(seq, state_measure, 0);
+        seq_next(seq, state_measure, NULL, 0);
     }
 }
 
-void state_measure(seq_t *seq)
+void state_measure(seq_t *seq, void *arg)
 {
     start_measurement();
 
     /* Come back in 200 ms, without blocking anything. */
-    seq_next(seq, state_report, 200);
+    seq_next(seq, state_report, NULL, 200);
 }
 
-void state_report(seq_t *seq)
+void state_report(seq_t *seq, void *arg)
 {
     send_result();
-    seq_next(seq, state_idle, 0);
+    seq_next(seq, state_idle, NULL, 0);
 }
 
 int main(void)
 {
     /* ... HAL init ... */
 
-    seq_init(&my_seq, state_idle);
+    seq_init(&my_seq, state_idle, NULL);
 
     while (1)
     {
@@ -191,27 +191,27 @@ typedef struct
 
 channel_t channels[4];
 
-void state_measure(seq_t *seq)
+void state_measure(seq_t *seq, void *arg)
 {
     channel_t *channel = (channel_t *)seq;
 
     channel->result = start_measurement(channel->uart, channel->address);
-    seq_next(seq, state_report, 200);
+    seq_next(seq, state_report, NULL, 200);
 }
 
-void state_report(seq_t *seq)
+void state_report(seq_t *seq, void *arg)
 {
     channel_t *channel = (channel_t *)seq;
 
     send_result(channel->result);
-    seq_next(seq, state_measure, 1000);
+    seq_next(seq, state_measure, NULL, 1000);
 }
 
 int main(void)
 {
     for (int i = 0; i < 4; i++)
     {
-        seq_init(&channels[i].seq, state_measure);
+        seq_init(&channels[i].seq, state_measure, NULL);
     }
 
     while (1)
@@ -225,9 +225,58 @@ int main(void)
 ```
 
 The cast is safe because C guarantees that a pointer to a struct and a pointer
-to its first member point at the same place. It is also how one state hands a
-result to the next: write it into your struct before `seq_next()`, and the next
-state reads it back, named and typed, with nothing that can dangle.
+to its first member point at the same place. Use this for what belongs to a
+machine for its whole life. For what one state hands the next, there is `arg`.
+
+### Handing something to the next state
+
+The argument you give `seq_next()` right after the state is handed to that
+state, on every run, until the next transition replaces it:
+
+```c
+void state_measure(seq_t *seq, void *arg)
+{
+    static int32_t result;
+
+    result = read_sensor();
+    seq_next(seq, state_report, &result, 0);
+}
+
+void state_report(seq_t *seq, void *arg)
+{
+    int32_t *result = arg;
+
+    send_result(*result);
+    seq_next(seq, state_measure, NULL, 1000);
+}
+```
+
+Only the pointer travels, not what it points at, so that has to outlive the
+wait. A `static`, a global, or a field of your own struct is fine. The address
+of a local variable is not: the state that called `seq_next()` has long returned
+by the time the next one runs.
+
+A small number fits too, without pointing at anything:
+
+```c
+void state_idle(seq_t *seq, void *arg)
+{
+    if (button_pressed())
+    {
+        seq_next(seq, state_blink, (void *)(uintptr_t)3, 0);
+    }
+}
+
+void state_blink(seq_t *seq, void *arg)
+{
+    uint32_t times = (uint32_t)(uintptr_t)arg;
+
+    blink_led(times);
+    seq_next(seq, state_idle, NULL, 0);
+}
+```
+
+`seq_init()` takes one as well, for the state a machine starts in.
 
 ### Handing work over from an interrupt
 
@@ -276,14 +325,14 @@ a local variable in the interrupt handler is not.
 
 `seq_task_add()`, and nothing else.
 
-Everything else expects to be called from the same place as `seq_loop()`, normally the main loop. `seq_next()` and `seq_stop()` each write several fields of the handle, and an interrupt landing in the middle leaves it half updated, most often with the new state set but not its delay, so it runs immediately instead of waiting. Nothing reports this, and it only happens on the timing where the interrupt lands badly, which is the worst kind of bug to chase.
+Everything else expects to be called from the same place as `seq_loop()`, normally the main loop. `seq_next()` and `seq_stop()` each write several fields of the handle, and an interrupt landing in the middle leaves it half updated, most often with the new state set but not yet its wait or its argument, so it runs at once, with the argument meant for the state before it. Nothing reports this, and it only happens on the timing where the interrupt lands badly, which is the worst kind of bug to chase.
 
 So changing state from an interrupt looks like this, not like a direct call:
 
 ```c
 static void on_button(void *arg)
 {
-    seq_next(arg, state_pressed, 500);       /* main loop, safe */
+    seq_next(arg, state_pressed, NULL, 500); /* main loop, safe */
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
@@ -298,9 +347,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 | Function | What it does |
 |---|---|
-| `void seq_init(seq_t *handle, seq_state_fn_t first_fn)` | Set up a handle and the state it starts from |
+| `void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *arg)` | Set up a handle, the state it starts from, and that state's argument |
 | `void seq_loop(seq_t *handle)` | Run queued tasks and the current state. Call it from your main loop |
-| `void seq_next(seq_t *handle, seq_state_fn_t next_fn, uint32_t wait_ms)` | Choose the next state, and how long to wait before it runs, without blocking |
+| `void seq_next(seq_t *handle, seq_state_fn_t next_fn, void *arg, uint32_t wait_ms)` | Choose the next state and its argument, and how long to wait before it runs, without blocking |
 | `uint32_t seq_time(const seq_t *handle)` | How long the machine has been in the current state |
 | `void seq_stop(seq_t *handle)` | Halt the machine. Nothing runs until the next `seq_next()` |
 | `bool seq_running(const seq_t *handle)` | False once stopped |
@@ -342,23 +391,23 @@ ctest --test-dir build --output-on-failure
 
 ## ⬆️ Coming from version 1
 
-Nothing in your state functions needs to change, but three things moved:
+Three things moved:
 
 - The files now live in `src/` instead of the repository root
 - `seq_config.h` now ships in `src/`. Copy it once and that copy is yours from then on
 - `seq.h` no longer includes `main.h`. If a file of yours relied on that, include `main.h` yourself
 
-Your state functions do need one change each. A state now takes the handle it belongs to, and a task takes the argument it was queued with:
+Your state and task functions need one change each. A state now takes the handle it belongs to and the argument it was entered with, and a task takes the argument it was queued with:
 
 ```c
-void my_state(void);          /* was */
-void my_state(seq_t *seq);    /* is now */
+void my_state(void);                     /* was */
+void my_state(seq_t *seq, void *arg);    /* is now */
 
-void my_task(void);           /* was */
-void my_task(void *arg);      /* is now */
+void my_task(void);                      /* was */
+void my_task(void *arg);                 /* is now */
 ```
 
-`seq_task_add()` gained a second argument. Pass `NULL` if a task needs nothing, and nothing else changes.
+`seq_init()`, `seq_next()` and `seq_task_add()` each gained an argument, always directly after the function it is handed to, so in `seq_next()` it comes before the wait. Pass `NULL` wherever there is nothing to hand over.
 
 The compiler finds every one of these for you, which is the point of doing it this way rather than leaving the old shape available beside the new one.
 

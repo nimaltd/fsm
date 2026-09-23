@@ -29,12 +29,22 @@
 
 #include "seq_config.h"
 
+/*
+ * ****************************************************************************************************
+ * Configuration checks
+ * ****************************************************************************************************
+*/
+
+/* Checked here and never in seq_config.h. That file is the user's: it is copied
+   once and never replaced, so a check in it can be edited away and would never
+   reach anyone who installed before it was added. */
+
 /* One slot is always kept free so a full queue can be told apart from an empty
-   one, so the queue needs at least two slots to work at all. Checked here
-   rather than in seq_config.h, because that file is the user's copy and is
-   never replaced, so a check living there would never reach anyone who
-   installed before it was added. */
-#if SEQ_MAX_TASKS < 2U
+   one, which leaves SEQ_MAX_TASKS - 1 usable. With 1 there would be none, and
+   every seq_task_add() would quietly return SEQ_ERR_FULL. */
+#ifndef SEQ_MAX_TASKS
+#error "SEQ_MAX_TASKS is not defined. Add it to seq_config.h"
+#elif SEQ_MAX_TASKS < 2U
 #error "SEQ_MAX_TASKS must be at least 2"
 #endif
 
@@ -57,9 +67,9 @@ typedef struct seq_s seq_t;
 
 /*****************************************************************************************************/
 /**
- * @brief A state function. Gets the handle it belongs to.
+ * @brief A state function. Gets its own handle and the argument it was entered with.
  */
-typedef void (*seq_state_fn_t)(seq_t *handle);
+typedef void (*seq_state_fn_t)(seq_t *handle, void *arg);
 
 /*****************************************************************************************************/
 /**
@@ -86,6 +96,7 @@ typedef enum
 struct seq_s
 {
     seq_state_fn_t next_fn;  /**< State function to run next.                    */
+    void           *arg;     /**< Handed to next_fn every time it runs.          */
     uint32_t       time;     /**< Tick value when the current state was entered. */
     uint32_t       wait_ms;  /**< How long to wait before the next state runs.   */
     uint8_t        entering; /**< Set until the next state has run once.         */
@@ -99,9 +110,9 @@ struct seq_s
 
 /*****************************************************************************************************/
 /**
- * @brief Initialize a handle and set the state it starts from.
+ * @brief Initialize a handle and set the state it starts from, with its argument.
  */
-void seq_init(seq_t *handle, seq_state_fn_t first_fn);
+void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *arg);
 
 /*****************************************************************************************************/
 /**
@@ -111,9 +122,9 @@ void seq_loop(seq_t *handle);
 
 /*****************************************************************************************************/
 /**
- * @brief Choose the next state, and how many milliseconds to wait before it runs.
+ * @brief Choose the next state and its argument, and how many milliseconds to wait first.
  */
-void seq_next(seq_t *handle, seq_state_fn_t next_fn, uint32_t wait_ms);
+void seq_next(seq_t *handle, seq_state_fn_t next_fn, void *arg, uint32_t wait_ms);
 
 /*****************************************************************************************************/
 /**

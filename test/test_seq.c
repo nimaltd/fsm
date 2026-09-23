@@ -66,8 +66,9 @@ static seq_t    test_seq;
 /* What the last task to run was handed, so a test can check it arrived. */
 static void *last_task_arg = NULL;
 
-/* What the last state to run was handed. */
+/* What the last state to run was handed, and the argument it came with. */
 static seq_t *last_state_handle = NULL;
+static void  *last_state_arg    = NULL;
 
 /* Set by a test to have the fake interrupt queue this, once, from inside
    seq_task_add. NULL means no interrupt arrives. */
@@ -90,27 +91,27 @@ static void queue_drain(void);
 
 /*****************************************************************************************************/
 /**
- * @brief A state that counts how often it ran and remembers its handle.
+ * @brief A state that counts how often it ran and remembers what it was handed.
  */
-static void state_a(seq_t *handle);
+static void state_a(seq_t *handle, void *arg);
 
 /*****************************************************************************************************/
 /**
  * @brief A second state, so transitions can be observed.
  */
-static void state_b(seq_t *handle);
+static void state_b(seq_t *handle, void *arg);
 
 /*****************************************************************************************************/
 /**
  * @brief A state that does nothing, used while draining the queue.
  */
-static void state_noop(seq_t *handle);
+static void state_noop(seq_t *handle, void *arg);
 
 /*****************************************************************************************************/
 /**
  * @brief A state that counts a run into the counter_t its handle is part of.
  */
-static void state_counts_into_owner(seq_t *handle);
+static void state_counts_into_owner(seq_t *handle, void *arg);
 
 /*****************************************************************************************************/
 /**
@@ -140,7 +141,7 @@ static void task_sums(void *arg);
 /**
  * @brief A state that gives up after five seconds, the way a real one would.
  */
-static void state_waits_then_times_out(seq_t *handle);
+static void state_waits_then_times_out(seq_t *handle, void *arg);
 
 /*
  * ****************************************************************************************************
@@ -181,6 +182,7 @@ void setUp(void)
     task_total         = 0;
     last_task_arg      = NULL;
     last_state_handle  = NULL;
+    last_state_arg     = NULL;
     queue_preempt_with = NULL;
     seq_test_primask   = 0;
 }
@@ -200,7 +202,7 @@ void tearDown(void)
 void test_init_runs_first_state(void)
 {
     test_tick = 100U;
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
     seq_loop(&test_seq);
 
     TEST_ASSERT_EQUAL_INT(1, state_a_calls);
@@ -213,8 +215,8 @@ void test_init_runs_first_state(void)
 void test_next_waits_before_running(void)
 {
     test_tick = 1000U;
-    seq_init(&test_seq, state_a);
-    seq_next(&test_seq, state_b, 200U);
+    seq_init(&test_seq, state_a, NULL);
+    seq_next(&test_seq, state_b, NULL, 200U);
 
     seq_loop(&test_seq);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, state_b_calls, "ran before the wait started");
@@ -235,8 +237,8 @@ void test_next_waits_before_running(void)
 void test_the_wait_clears_after_running(void)
 {
     test_tick = 1000U;
-    seq_init(&test_seq, state_a);
-    seq_next(&test_seq, state_b, 200U);
+    seq_init(&test_seq, state_a, NULL);
+    seq_next(&test_seq, state_b, NULL, 200U);
 
     test_tick = 1200U;
     seq_loop(&test_seq);
@@ -253,7 +255,7 @@ void test_the_wait_clears_after_running(void)
 void test_time_counts_from_state_entry(void)
 {
     test_tick = 500U;
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
 
     test_tick = 650U;
 
@@ -266,7 +268,7 @@ void test_time_counts_from_state_entry(void)
  */
 void test_queued_task_runs(void)
 {
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
 
     TEST_ASSERT_EQUAL_INT(SEQ_ERR_NONE, seq_task_add(task_one, NULL));
 
@@ -284,7 +286,7 @@ void test_queued_task_runs(void)
  */
 void test_a_state_is_given_its_own_handle(void)
 {
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
     seq_loop(&test_seq);
 
     TEST_ASSERT_EQUAL_PTR_MESSAGE(&test_seq, last_state_handle,
@@ -305,8 +307,8 @@ void test_two_machines_share_one_state_function(void)
     counter_t first  = { .runs = 0 };
     counter_t second = { .runs = 0 };
 
-    seq_init(&first.seq, state_counts_into_owner);
-    seq_init(&second.seq, state_counts_into_owner);
+    seq_init(&first.seq, state_counts_into_owner, NULL);
+    seq_init(&second.seq, state_counts_into_owner, NULL);
 
     seq_loop(&first.seq);
     seq_loop(&first.seq);
@@ -318,13 +320,110 @@ void test_two_machines_share_one_state_function(void)
 
 /*****************************************************************************************************/
 /**
+ * @brief The first state is handed the argument given to seq_init().
+ */
+void test_the_first_state_gets_the_init_argument(void)
+{
+    int marker = 0;
+
+    seq_init(&test_seq, state_a, &marker);
+    seq_loop(&test_seq);
+
+    TEST_ASSERT_EQUAL_PTR_MESSAGE(&marker, last_state_arg, "the first state lost its argument");
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief The next state is handed the argument given to seq_next().
+ */
+void test_the_next_state_gets_its_argument(void)
+{
+    int marker = 0;
+
+    seq_init(&test_seq, state_a, NULL);
+    seq_next(&test_seq, state_b, &marker, 0U);
+    seq_loop(&test_seq);
+
+    TEST_ASSERT_EQUAL_INT(1, state_b_calls);
+    TEST_ASSERT_EQUAL_PTR_MESSAGE(&marker, last_state_arg, "the next state lost its argument");
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief The argument arrives after a wait, not only on an immediate transition.
+ *
+ * seq_loop() calls the state from two places, one for a state with no wait and
+ * one for a wait that has just run out, and each has to pass the argument on.
+ */
+void test_the_argument_survives_a_wait(void)
+{
+    int marker = 0;
+
+    test_tick = 1000U;
+    seq_init(&test_seq, state_a, NULL);
+    seq_next(&test_seq, state_b, &marker, 200U);
+
+    test_tick = 1200U;
+    seq_loop(&test_seq);
+
+    TEST_ASSERT_EQUAL_INT(1, state_b_calls);
+    TEST_ASSERT_EQUAL_PTR_MESSAGE(&marker, last_state_arg, "the argument was lost across the wait");
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief Every run of a state gets its argument, not only the first.
+ *
+ * A state with no wait runs on every pass of the loop. One that found its
+ * argument on the first run and NULL on the second would be a trap.
+ */
+void test_the_argument_is_given_on_every_run(void)
+{
+    int marker = 0;
+
+    seq_init(&test_seq, state_a, &marker);
+    seq_loop(&test_seq);
+
+    last_state_arg = NULL;
+    seq_loop(&test_seq);
+
+    TEST_ASSERT_EQUAL_INT(2, state_a_calls);
+    TEST_ASSERT_EQUAL_PTR_MESSAGE(&marker, last_state_arg, "the second run lost the argument");
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief A transition replaces the argument, and NULL replaces it too.
+ *
+ * Keeping the old one when the new one is NULL would hand a state an argument
+ * that was meant for the state before it.
+ */
+void test_a_transition_replaces_the_argument(void)
+{
+    int first  = 0;
+    int second = 0;
+
+    seq_init(&test_seq, state_a, &first);
+    seq_loop(&test_seq);
+
+    seq_next(&test_seq, state_b, &second, 0U);
+    seq_loop(&test_seq);
+    TEST_ASSERT_EQUAL_PTR_MESSAGE(&second, last_state_arg, "the old argument was kept");
+
+    seq_next(&test_seq, state_a, NULL, 0U);
+    seq_loop(&test_seq);
+    TEST_ASSERT_NULL_MESSAGE(last_state_arg, "a NULL argument did not replace the old one");
+}
+
+/*****************************************************************************************************/
+/**
  * @brief A task is handed the argument it was queued with.
  */
 void test_a_task_is_given_its_argument(void)
 {
     int marker = 0;
 
-    seq_init(&test_seq, state_noop);
+    seq_init(&test_seq, state_noop, NULL);
 
     TEST_ASSERT_EQUAL_INT(SEQ_ERR_NONE, seq_task_add(task_one, &marker));
     seq_loop(&test_seq);
@@ -348,7 +447,7 @@ void test_every_queued_task_keeps_its_own_argument(void)
     int two   = 20;
     int three = 300;
 
-    seq_init(&test_seq, state_noop);
+    seq_init(&test_seq, state_noop, NULL);
 
     (void)seq_task_add(task_sums, &one);
     (void)seq_task_add(task_sums, &two);
@@ -369,7 +468,7 @@ void test_arguments_survive_the_queue_wrapping(void)
 {
     int markers[20];
 
-    seq_init(&test_seq, state_noop);
+    seq_init(&test_seq, state_noop, NULL);
 
     for (int i = 0; i < 20; i++)
     {
@@ -412,7 +511,7 @@ void test_queue_refuses_when_full(void)
  */
 void test_a_burst_runs_in_one_loop(void)
 {
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
 
     (void)seq_task_add(task_one, NULL);
     (void)seq_task_add(task_one, NULL);
@@ -431,7 +530,7 @@ void test_a_burst_runs_in_one_loop(void)
  */
 void test_queue_wraps_around(void)
 {
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
 
     for (int i = 0; i < 20; i++)
     {
@@ -451,9 +550,9 @@ void test_null_arguments_are_refused(void)
     TEST_ASSERT_EQUAL_INT(SEQ_ERR_INVALID, seq_task_add(NULL, NULL));
     TEST_ASSERT_EQUAL_UINT32(0U, seq_time(NULL));
 
-    seq_init(NULL, state_a);
+    seq_init(NULL, state_a, NULL);
     seq_loop(NULL);
-    seq_next(NULL, state_a, 0U);
+    seq_next(NULL, state_a, NULL, 0U);
 
     TEST_ASSERT_EQUAL_INT(0, state_a_calls);
 }
@@ -469,7 +568,7 @@ void test_null_arguments_are_refused(void)
 void test_time_grows_while_a_state_runs(void)
 {
     test_tick = 1000U;
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
 
     for (uint32_t i = 0U; i < 5000U; i++)
     {
@@ -494,7 +593,7 @@ void test_a_timeout_actually_fires(void)
     uint32_t fired_at = 0U;
 
     test_tick = 0U;
-    seq_init(&test_seq, state_waits_then_times_out);
+    seq_init(&test_seq, state_waits_then_times_out, NULL);
 
     for (uint32_t i = 0U; i < 6000U; i++)
     {
@@ -519,7 +618,7 @@ void test_a_timeout_actually_fires(void)
 void test_time_restarts_on_a_real_transition(void)
 {
     test_tick = 1000U;
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
     seq_loop(&test_seq);
 
     test_tick = 1500U;
@@ -527,7 +626,7 @@ void test_time_restarts_on_a_real_transition(void)
     TEST_ASSERT_EQUAL_UINT32_MESSAGE(500U, seq_time(&test_seq),
                                      "time should keep counting inside one state");
 
-    seq_next(&test_seq, state_b, 0U);
+    seq_next(&test_seq, state_b, NULL, 0U);
 
     test_tick = 1600U;
     seq_loop(&test_seq);
@@ -548,10 +647,10 @@ void test_time_restarts_on_a_real_transition(void)
 void test_a_wait_does_not_count_as_time_in_the_state(void)
 {
     test_tick = 1000U;
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
     seq_loop(&test_seq);
 
-    seq_next(&test_seq, state_b, 200U);
+    seq_next(&test_seq, state_b, NULL, 200U);
 
     test_tick = 1200U;
     seq_loop(&test_seq);
@@ -576,7 +675,7 @@ void test_two_interrupts_do_not_lose_a_task(void)
 
     queue_preempt_with = NULL;
 
-    seq_init(&test_seq, state_noop);
+    seq_init(&test_seq, state_noop, NULL);
 
     for (uint32_t i = 0U; i < (SEQ_MAX_TASKS + 2U); i++)
     {
@@ -593,7 +692,7 @@ void test_two_interrupts_do_not_lose_a_task(void)
  */
 void test_stop_halts_the_machine(void)
 {
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
     seq_loop(&test_seq);
     TEST_ASSERT_TRUE(seq_running(&test_seq));
 
@@ -612,10 +711,10 @@ void test_stop_halts_the_machine(void)
  */
 void test_a_stopped_machine_can_be_restarted(void)
 {
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
     seq_stop(&test_seq);
 
-    seq_next(&test_seq, state_b, 0U);
+    seq_next(&test_seq, state_b, NULL, 0U);
     seq_loop(&test_seq);
 
     TEST_ASSERT_TRUE(seq_running(&test_seq));
@@ -631,7 +730,7 @@ void test_a_stopped_machine_can_be_restarted(void)
  */
 void test_a_stopped_machine_still_serves_the_queue(void)
 {
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
     seq_stop(&test_seq);
 
     TEST_ASSERT_EQUAL_INT(SEQ_ERR_NONE, seq_task_add(task_one, NULL));
@@ -661,7 +760,7 @@ void test_the_queue_reports_how_deep_it_ever_got(void)
  */
 void test_flush_empties_the_queue(void)
 {
-    seq_init(&test_seq, state_noop);
+    seq_init(&test_seq, state_noop, NULL);
 
     (void)seq_task_add(task_one, NULL);
     (void)seq_task_add(task_one, NULL);
@@ -711,7 +810,7 @@ void test_a_null_task_is_not_reported_as_a_full_queue(void)
 void test_time_is_zero_once_stopped(void)
 {
     test_tick = 1000U;
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
     seq_loop(&test_seq);
 
     test_tick = 1500U;
@@ -735,7 +834,7 @@ void test_time_is_zero_once_stopped(void)
  */
 void test_a_task_that_requeues_itself_does_not_trap_the_loop(void)
 {
-    seq_init(&test_seq, state_a);
+    seq_init(&test_seq, state_a, NULL);
 
     requeue_limit = 5;
     (void)seq_task_add(task_requeues, NULL);
@@ -756,7 +855,7 @@ void test_a_task_that_requeues_itself_does_not_trap_the_loop(void)
  */
 void test_work_queued_during_a_burst_waits(void)
 {
-    seq_init(&test_seq, state_noop);
+    seq_init(&test_seq, state_noop, NULL);
 
     requeue_limit = 1;
     (void)seq_task_add(task_requeues, NULL);
@@ -786,6 +885,11 @@ int main(void)
     RUN_TEST(test_queued_task_runs);
     RUN_TEST(test_a_state_is_given_its_own_handle);
     RUN_TEST(test_two_machines_share_one_state_function);
+    RUN_TEST(test_the_first_state_gets_the_init_argument);
+    RUN_TEST(test_the_next_state_gets_its_argument);
+    RUN_TEST(test_the_argument_survives_a_wait);
+    RUN_TEST(test_the_argument_is_given_on_every_run);
+    RUN_TEST(test_a_transition_replaces_the_argument);
     RUN_TEST(test_a_task_is_given_its_argument);
     RUN_TEST(test_every_queued_task_keeps_its_own_argument);
     RUN_TEST(test_arguments_survive_the_queue_wrapping);
@@ -826,7 +930,7 @@ static void queue_drain(void)
 {
     seq_t scratch;
 
-    seq_init(&scratch, state_noop);
+    seq_init(&scratch, state_noop, NULL);
 
     for (uint32_t i = 0U; i < (SEQ_MAX_TASKS + 1U); i++)
     {
@@ -838,9 +942,10 @@ static void queue_drain(void)
 /**
  * @brief A state that counts how often it ran and remembers its handle.
  */
-static void state_a(seq_t *handle)
+static void state_a(seq_t *handle, void *arg)
 {
     last_state_handle = handle;
+    last_state_arg    = arg;
     state_a_calls++;
 }
 
@@ -848,9 +953,10 @@ static void state_a(seq_t *handle)
 /**
  * @brief A second state, so transitions can be observed.
  */
-static void state_b(seq_t *handle)
+static void state_b(seq_t *handle, void *arg)
 {
     last_state_handle = handle;
+    last_state_arg    = arg;
     state_b_calls++;
 }
 
@@ -858,17 +964,20 @@ static void state_b(seq_t *handle)
 /**
  * @brief A state that does nothing, used while draining the queue.
  */
-static void state_noop(seq_t *handle)
+static void state_noop(seq_t *handle, void *arg)
 {
     (void)handle;
+    (void)arg;
 }
 
 /*****************************************************************************************************/
 /**
  * @brief A state that counts a run into the counter_t its handle is part of.
  */
-static void state_counts_into_owner(seq_t *handle)
+static void state_counts_into_owner(seq_t *handle, void *arg)
 {
+    (void)arg;
+
     /* Guarded so a state handed the wrong thing fails an assertion rather than
        bringing the whole suite down with it. */
     if (handle != NULL)
@@ -933,11 +1042,13 @@ static void task_sums(void *arg)
 /**
  * @brief A state that gives up after five seconds, the way a real one would.
  */
-static void state_waits_then_times_out(seq_t *handle)
+static void state_waits_then_times_out(seq_t *handle, void *arg)
 {
+    (void)arg;
+
     if (seq_time(handle) > 5000U)
     {
-        seq_next(handle, state_b, 0U);
+        seq_next(handle, state_b, NULL, 0U);
     }
 }
 

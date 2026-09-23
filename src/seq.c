@@ -92,20 +92,23 @@ static void seq_queue_run(void);
 
 /*****************************************************************************************************/
 /**
- * @brief Initialize a handle and set the state it starts from.
+ * @brief Initialize a handle and set the state it starts from, with its argument.
  *
- * The machine runs first_fn on the next call to seq_loop(), with no wait.
+ * The machine runs first_fn on the next call to seq_loop(), with no wait, and
+ * hands it arg exactly the way seq_next() hands the next state its argument.
+ * This is simply the first transition.
  *
  * Every state is handed its own handle, so one set of state functions can drive
- * several machines. To give each machine data of its own, make seq_t the first
- * member of your own struct and cast the handle back to that struct inside the
- * state. The C standard guarantees a pointer to a struct and a pointer to its
- * first member are interchangeable, so nothing extra has to be stored here.
+ * several machines. For data that belongs to a machine for its whole life, make
+ * seq_t the first member of your own struct and cast the handle back to that
+ * struct inside the state. The C standard guarantees a pointer to a struct and
+ * a pointer to its first member are interchangeable.
  *
  * @param[out] handle    Handle to initialize. Must not be NULL.
  * @param[in]  first_fn  State function to start from. Must not be NULL.
+ * @param[in]  arg       Handed to first_fn every time it runs. May be NULL.
  */
-void seq_init(seq_t *handle, seq_state_fn_t first_fn)
+void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *arg)
 {
     assert_param(handle != NULL);
     assert_param(first_fn != NULL);
@@ -113,6 +116,7 @@ void seq_init(seq_t *handle, seq_state_fn_t first_fn)
     if ((handle != NULL) && (first_fn != NULL))
     {
         handle->next_fn  = first_fn;
+        handle->arg      = arg;
         handle->wait_ms  = 0U;
         handle->time     = HAL_GetTick(); /* Sane value for seq_time() before the first run. */
         handle->entering = 1U;
@@ -142,7 +146,7 @@ void seq_loop(seq_t *handle)
             if (handle->wait_ms == 0U)
             {
                 seq_enter(handle);
-                handle->next_fn(handle);
+                handle->next_fn(handle, handle->arg);
             }
             else if ((HAL_GetTick() - handle->time) >= handle->wait_ms)
             {
@@ -150,7 +154,7 @@ void seq_loop(seq_t *handle)
                    free to ask for a new one. */
                 handle->wait_ms = 0U;
                 seq_enter(handle);
-                handle->next_fn(handle);
+                handle->next_fn(handle, handle->arg);
             }
             else
             {
@@ -162,18 +166,25 @@ void seq_loop(seq_t *handle)
 
 /*****************************************************************************************************/
 /**
- * @brief Choose the next state, and how long to wait before it runs.
+ * @brief Choose the next state and its argument, and how long to wait before it runs.
  *
  * The wait is measured from this call, not from when the current state
  * returns. A wait of zero runs the next state on the following seq_loop().
  * Nothing blocks while it counts down: seq_loop() keeps returning at once, and
  * the task queue keeps being served.
  *
+ * arg is handed to next_fn on every run, until the next transition replaces it.
+ * Only the pointer is kept, not what it points at, so that has to stay valid
+ * as long: a static, a global or a field of your own struct is fine. The
+ * address of a local variable is not, since the state that called this has
+ * returned long before the next one runs.
+ *
  * @param[in,out] handle   Handle to update. Must not be NULL.
  * @param[in]     next_fn  State function to run next. Must not be NULL.
+ * @param[in]     arg      Handed to next_fn every time it runs. May be NULL.
  * @param[in]     wait_ms  Milliseconds to wait before running next_fn.
  */
-void seq_next(seq_t *handle, seq_state_fn_t next_fn, uint32_t wait_ms)
+void seq_next(seq_t *handle, seq_state_fn_t next_fn, void *arg, uint32_t wait_ms)
 {
     assert_param(handle != NULL);
     assert_param(next_fn != NULL);
@@ -183,6 +194,7 @@ void seq_next(seq_t *handle, seq_state_fn_t next_fn, uint32_t wait_ms)
         handle->wait_ms  = wait_ms;
         handle->time     = HAL_GetTick();
         handle->next_fn  = next_fn;
+        handle->arg      = arg;
         handle->entering = 1U;
     }
 }

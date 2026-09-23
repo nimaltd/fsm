@@ -27,24 +27,26 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - Sources moved to `src/`, flat, with the configuration beside them.
 - `seq.h` no longer includes `main.h`. Include it yourself if you relied on that.
-- **State functions and tasks now take a parameter.** A state is handed the
-  handle it belongs to, and a task is handed whatever it was queued with:
+- **State functions and tasks now take parameters.** A state is handed the
+  handle it belongs to and the argument it was entered with, and a task is
+  handed whatever it was queued with:
 
   ```c
+  void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *arg);
+  void seq_next(seq_t *handle, seq_state_fn_t next_fn, void *arg, uint32_t wait_ms);
   seq_err_t seq_task_add(seq_task_fn_t task_fn, void *arg);
 
-  void my_state(seq_t *handle);
+  void my_state(seq_t *handle, void *arg);
   void my_task(void *arg);
   ```
 
-  Without this, a state function has to name its machine through a file scope
-  variable, so one set of states cannot drive two machines, and an interrupt
-  cannot say which peripheral its work belongs to. Both were solved with globals
-  before, and neither needs one now.
+  Without these, a state has to name its machine through a file scope variable,
+  one state cannot hand anything to the next except through a global, and an
+  interrupt cannot say which peripheral its work belongs to. None of the three
+  needs a global now. Pass `NULL` wherever there is nothing to hand over.
 
-  To give a machine data of its own, make `seq_t` the first member of your own
-  struct and cast the handle back to it inside the state. Nothing extra is
-  stored in the handle for this.
+  For data that belongs to a machine for its whole life, make `seq_t` the first
+  member of your own struct and cast the handle back to it inside the state.
 
 - The wait before a state runs is now called `wait_ms`, in `seq_next()` and in
   `seq_t`. In STM32 code "delay" reads as `HAL_Delay()`, which blocks, and not
