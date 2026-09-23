@@ -162,7 +162,7 @@ int main(void)
 {
     /* ... HAL init ... */
 
-    seq_init(&my_seq, state_idle, NULL);
+    seq_init(&my_seq, state_idle);
 
     while (1)
     {
@@ -177,43 +177,57 @@ channels: four handles, one set of states.
 
 ### Giving a machine something of its own
 
-The last argument to `seq_init()` is yours. The library keeps it and hands it
-back through the handle, and never looks inside it.
+Put the `seq_t` first in a struct of your own, and cast the handle back to it
+inside the state:
 
 ```c
 typedef struct
 {
+    seq_t               seq;      /* must be the first member */
     UART_HandleTypeDef *uart;
     uint8_t             address;
+    int32_t             result;
 } channel_t;
 
 channel_t channels[4];
-seq_t     machines[4];
 
 void state_measure(seq_t *seq)
 {
-    channel_t *channel = seq->user_data;
+    channel_t *channel = (channel_t *)seq;
 
-    start_measurement(channel->uart, channel->address);
+    channel->result = start_measurement(channel->uart, channel->address);
     seq_next(seq, state_report, 200);
+}
+
+void state_report(seq_t *seq)
+{
+    channel_t *channel = (channel_t *)seq;
+
+    send_result(channel->result);
+    seq_next(seq, state_measure, 1000);
 }
 
 int main(void)
 {
     for (int i = 0; i < 4; i++)
     {
-        seq_init(&machines[i], state_measure, &channels[i]);
+        seq_init(&channels[i].seq, state_measure);
     }
 
     while (1)
     {
         for (int i = 0; i < 4; i++)
         {
-            seq_loop(&machines[i]);
+            seq_loop(&channels[i].seq);
         }
     }
 }
 ```
+
+The cast is safe because C guarantees that a pointer to a struct and a pointer
+to its first member point at the same place. It is also how one state hands a
+result to the next: write it into your struct before `seq_next()`, and the next
+state reads it back, named and typed, with nothing that can dangle.
 
 ### Handing work over from an interrupt
 
@@ -284,9 +298,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 | Function | What it does |
 |---|---|
-| `void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *user_data)` | Set up a handle, the state it starts from, and what it carries |
+| `void seq_init(seq_t *handle, seq_state_fn_t first_fn)` | Set up a handle and the state it starts from |
 | `void seq_loop(seq_t *handle)` | Run queued tasks and the current state. Call it from your main loop |
-| `void seq_next(seq_t *handle, seq_state_fn_t next_fn, uint32_t delay_ms)` | Choose the next state, optionally after a delay |
+| `void seq_next(seq_t *handle, seq_state_fn_t next_fn, uint32_t wait_ms)` | Choose the next state, and how long to wait before it runs, without blocking |
 | `uint32_t seq_time(const seq_t *handle)` | How long the machine has been in the current state |
 | `void seq_stop(seq_t *handle)` | Halt the machine. Nothing runs until the next `seq_next()` |
 | `bool seq_running(const seq_t *handle)` | False once stopped |
@@ -344,7 +358,7 @@ void my_task(void);           /* was */
 void my_task(void *arg);      /* is now */
 ```
 
-`seq_init()` gained a third argument and `seq_task_add()` a second. Pass `NULL` to both if you have nothing to carry, and nothing else changes.
+`seq_task_add()` gained a second argument. Pass `NULL` if a task needs nothing, and nothing else changes.
 
 The compiler finds every one of these for you, which is the point of doing it this way rather than leaving the old shape available beside the new one.
 

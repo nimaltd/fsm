@@ -31,7 +31,6 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   handle it belongs to, and a task is handed whatever it was queued with:
 
   ```c
-  void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *user_data);
   seq_err_t seq_task_add(seq_task_fn_t task_fn, void *arg);
 
   void my_state(seq_t *handle);
@@ -43,8 +42,14 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   cannot say which peripheral its work belongs to. Both were solved with globals
   before, and neither needs one now.
 
-  `seq_t` gains a `user_data` field, set by `seq_init()` and never read by the
-  library, so a state reaches its own data through `handle->user_data`.
+  To give a machine data of its own, make `seq_t` the first member of your own
+  struct and cast the handle back to it inside the state. Nothing extra is
+  stored in the handle for this.
+
+- The wait before a state runs is now called `wait_ms`, in `seq_next()` and in
+  `seq_t`. In STM32 code "delay" reads as `HAL_Delay()`, which blocks, and not
+  blocking is the whole point here. Calls do not change, since a parameter name
+  never appears at a call site.
 
 - The single `fsm_fn_t` became `seq_state_fn_t` and `seq_task_fn_t`, because a
   state and a task are not the same thing and no longer have the same shape.

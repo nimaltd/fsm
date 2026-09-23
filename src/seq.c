@@ -92,31 +92,30 @@ static void seq_queue_run(void);
 
 /*****************************************************************************************************/
 /**
- * @brief Initialize a handle, set the state it starts from, and what it carries.
+ * @brief Initialize a handle and set the state it starts from.
  *
- * The machine runs first_fn on the next call to seq_loop(), with no delay.
+ * The machine runs first_fn on the next call to seq_loop(), with no wait.
  *
- * user_data is never read by this library, only stored and handed back. It is
- * there so one set of state functions can drive several machines: each state is
- * given its own handle, and reaches whatever belongs to that machine through
- * handle->user_data.
+ * Every state is handed its own handle, so one set of state functions can drive
+ * several machines. To give each machine data of its own, make seq_t the first
+ * member of your own struct and cast the handle back to that struct inside the
+ * state. The C standard guarantees a pointer to a struct and a pointer to its
+ * first member are interchangeable, so nothing extra has to be stored here.
  *
- * @param[out] handle     Handle to initialize. Must not be NULL.
- * @param[in]  first_fn   State function to start from. Must not be NULL.
- * @param[in]  user_data  Anything the state functions need. May be NULL.
+ * @param[out] handle    Handle to initialize. Must not be NULL.
+ * @param[in]  first_fn  State function to start from. Must not be NULL.
  */
-void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *user_data)
+void seq_init(seq_t *handle, seq_state_fn_t first_fn)
 {
     assert_param(handle != NULL);
     assert_param(first_fn != NULL);
 
     if ((handle != NULL) && (first_fn != NULL))
     {
-        handle->next_fn   = first_fn;
-        handle->user_data = user_data;
-        handle->delay_ms  = 0U;
-        handle->time      = HAL_GetTick(); /* Sane value for seq_time() before the first run. */
-        handle->entering  = 1U;
+        handle->next_fn  = first_fn;
+        handle->wait_ms  = 0U;
+        handle->time     = HAL_GetTick(); /* Sane value for seq_time() before the first run. */
+        handle->entering = 1U;
     }
 }
 
@@ -126,7 +125,7 @@ void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *user_data)
  *
  * Call this as often as possible from the main loop. Queued tasks are served
  * before the state function, so work handed over by an interrupt is not held
- * up by a state that is still waiting out its delay.
+ * up by a state that is still waiting to run.
  *
  * @param[in,out] handle  Handle to run. Must not be NULL.
  */
@@ -140,22 +139,22 @@ void seq_loop(seq_t *handle)
 
         if (handle->next_fn != NULL)
         {
-            if (handle->delay_ms == 0U)
+            if (handle->wait_ms == 0U)
             {
                 seq_enter(handle);
                 handle->next_fn(handle);
             }
-            else if ((HAL_GetTick() - handle->time) >= handle->delay_ms)
+            else if ((HAL_GetTick() - handle->time) >= handle->wait_ms)
             {
-                /* Clear the delay before the state runs, so the state itself is
+                /* Clear the wait before the state runs, so the state itself is
                    free to ask for a new one. */
-                handle->delay_ms = 0U;
+                handle->wait_ms = 0U;
                 seq_enter(handle);
                 handle->next_fn(handle);
             }
             else
             {
-                /* Still waiting out the delay, nothing to do. */
+                /* Still waiting, nothing to do. */
             }
         }
     }
@@ -163,23 +162,25 @@ void seq_loop(seq_t *handle)
 
 /*****************************************************************************************************/
 /**
- * @brief Choose the next state, optionally after a delay.
+ * @brief Choose the next state, and how long to wait before it runs.
  *
- * The delay is measured from this call, not from when the current state
- * returns. A delay of zero runs the next state on the following seq_loop().
+ * The wait is measured from this call, not from when the current state
+ * returns. A wait of zero runs the next state on the following seq_loop().
+ * Nothing blocks while it counts down: seq_loop() keeps returning at once, and
+ * the task queue keeps being served.
  *
- * @param[in,out] handle    Handle to update. Must not be NULL.
- * @param[in]     next_fn   State function to run next. Must not be NULL.
- * @param[in]     delay_ms  Milliseconds to wait before running next_fn.
+ * @param[in,out] handle   Handle to update. Must not be NULL.
+ * @param[in]     next_fn  State function to run next. Must not be NULL.
+ * @param[in]     wait_ms  Milliseconds to wait before running next_fn.
  */
-void seq_next(seq_t *handle, seq_state_fn_t next_fn, uint32_t delay_ms)
+void seq_next(seq_t *handle, seq_state_fn_t next_fn, uint32_t wait_ms)
 {
     assert_param(handle != NULL);
     assert_param(next_fn != NULL);
 
     if ((handle != NULL) && (next_fn != NULL))
     {
-        handle->delay_ms = delay_ms;
+        handle->wait_ms  = wait_ms;
         handle->time     = HAL_GetTick();
         handle->next_fn  = next_fn;
         handle->entering = 1U;
@@ -192,8 +193,8 @@ void seq_next(seq_t *handle, seq_state_fn_t next_fn, uint32_t delay_ms)
  *
  * The clock restarts when a transition is requested with seq_init() or
  * seq_next(), and again when the next state actually starts running, so a
- * state can use it to measure its own runtime. While a delayed transition is
- * pending, it measures the wait so far.
+ * state can use it to measure its own runtime. While a transition is still
+ * waiting to run, it measures the wait so far.
  *
  * @param[in] handle  Handle to read. Must not be NULL.
  * @return Milliseconds since the last transition, or 0 if handle is NULL or
@@ -230,7 +231,7 @@ void seq_stop(seq_t *handle)
     if (handle != NULL)
     {
         handle->next_fn  = NULL;
-        handle->delay_ms = 0U;
+        handle->wait_ms  = 0U;
         handle->entering = 0U;
     }
 }

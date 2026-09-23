@@ -85,11 +85,10 @@ typedef enum
  */
 struct seq_s
 {
-    seq_state_fn_t next_fn;    /**< State function to run next.                    */
-    void           *user_data; /**< Yours. Given to seq_init(), never read here.   */
-    uint32_t       time;       /**< Tick value when the current state was entered. */
-    uint32_t       delay_ms;   /**< Delay to wait before the next state runs.      */
-    uint8_t        entering;   /**< Set until the next state has run once.         */
+    seq_state_fn_t next_fn;  /**< State function to run next.                    */
+    uint32_t       time;     /**< Tick value when the current state was entered. */
+    uint32_t       wait_ms;  /**< How long to wait before the next state runs.   */
+    uint8_t        entering; /**< Set until the next state has run once.         */
 };
 
 /*
@@ -100,9 +99,9 @@ struct seq_s
 
 /*****************************************************************************************************/
 /**
- * @brief Initialize a handle, set the state it starts from, and what it carries.
+ * @brief Initialize a handle and set the state it starts from.
  */
-void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *user_data);
+void seq_init(seq_t *handle, seq_state_fn_t first_fn);
 
 /*****************************************************************************************************/
 /**
@@ -112,9 +111,9 @@ void seq_loop(seq_t *handle);
 
 /*****************************************************************************************************/
 /**
- * @brief Choose the next state, optionally after a delay in milliseconds.
+ * @brief Choose the next state, and how many milliseconds to wait before it runs.
  */
-void seq_next(seq_t *handle, seq_state_fn_t next_fn, uint32_t delay_ms);
+void seq_next(seq_t *handle, seq_state_fn_t next_fn, uint32_t wait_ms);
 
 /*****************************************************************************************************/
 /**
