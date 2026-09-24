@@ -62,7 +62,7 @@ Downloaded this repository with **Code**, **Download ZIP**? Give the installer t
 stm32-installer D:/Downloads/sequencer-master.zip
 ```
 
-Only the files the library needs are copied into your project, and the zip is left alone. An unpacked folder works the same way. [stm32-installer's README](https://github.com/nimaltd/stm32-installer#installing-a-library) has every option, how to run it without pip, and how to install on a machine with no internet at all.
+Only the files the library needs are copied into your project, and the zip is left alone. An unpacked folder works the same way. [stm32-installer's README](https://github.com/nimaltd/stm32-installer#installing-a-library) has every option, and how to install on a machine with no internet at all.
 
 ### Updating, and pinning a version
 
