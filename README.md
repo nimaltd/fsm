@@ -261,6 +261,36 @@ void state_blink(seq_t *seq, void *arg)
 
 `seq_init()` takes one as well, for the state a machine starts in.
 
+### Doing something once when a state starts
+
+A state runs on every `seq_loop()` until it moves on. For work it should do only
+once, such as sending a request before it waits for the answer, ask
+`seq_first_run()`:
+
+```c
+void state_wait_for_reply(seq_t *seq, void *arg)
+{
+    if (seq_first_run(seq))
+    {
+        send_request();
+    }
+
+    if (reply_ready())
+    {
+        seq_next(seq, state_use_reply, NULL, 0);
+    }
+    else if (seq_time(seq) >= 500)
+    {
+        seq_next(seq, state_no_reply, NULL, 0);
+    }
+}
+```
+
+Every transition counts as a new start, one back into the same state included,
+and after a wait the first run is the one the wait ends with. Checking
+`seq_time()` for 0 is not the same thing: the main loop can go round many times
+in one millisecond, and `seq_time()` reads 0 on every one of them.
+
 ### Handing work over from an interrupt
 
 This is the part that keeps your ISRs honest. The handler queues a function and returns immediately, and the work itself runs later from the main loop.
@@ -334,11 +364,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 | `void seq_loop(seq_t *handle)` | Run queued tasks and the current state. Call it from your main loop |
 | `void seq_next(seq_t *handle, seq_state_fn_t next_fn, void *arg, uint32_t wait_ms)` | Choose the next state and its argument, and how long to wait before it runs, without blocking |
 | `uint32_t seq_time(const seq_t *handle)` | How long the machine has been in the current state |
+| `bool seq_first_run(const seq_t *handle)` | True during the first run of the current state, for work it does once when it starts |
 | `void seq_stop(seq_t *handle)` | Halt the machine. Nothing runs until the next `seq_next()` |
 | `bool seq_running(const seq_t *handle)` | False once stopped |
 | `seq_err_t seq_task_add(seq_task_fn_t task_fn, void *arg)` | Queue a task with its argument. Safe to call from an interrupt |
 | `uint32_t seq_task_peak(void)` | The most tasks ever queued at once |
-| `void seq_task_flush(void)` | Drop everything queued |
+| `void seq_task_flush(void)` | Drop everything queued. Fine from the main loop or from a task, not from an interrupt |
 
 `seq_task_add()` returns `SEQ_ERR_NONE` when the task was queued, `SEQ_ERR_FULL` when the queue is full, or `SEQ_ERR_INVALID` when `task_fn` is `NULL`. It is the only call that is safe from an interrupt, and `seq_loop()` must have a single caller, since two would both consume the queue and could take the same task twice.
 

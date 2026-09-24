@@ -74,7 +74,7 @@ static seq_queue_t seq_queue;
 
 /*****************************************************************************************************/
 /**
- * @brief Restart the clock if this is the first run of a new state.
+ * @brief Mark the first run of a new state, and restart its clock.
  */
 static void seq_enter(seq_t *handle);
 
@@ -115,11 +115,12 @@ void seq_init(seq_t *handle, seq_state_fn_t first_fn, void *arg)
 
     if ((handle != NULL) && (first_fn != NULL))
     {
-        handle->next_fn  = first_fn;
-        handle->arg      = arg;
-        handle->wait_ms  = 0U;
-        handle->time     = HAL_GetTick(); /* Sane value for seq_time() before the first run. */
-        handle->entering = 1U;
+        handle->next_fn   = first_fn;
+        handle->arg       = arg;
+        handle->wait_ms   = 0U;
+        handle->time      = HAL_GetTick(); /* Sane value for seq_time() before the first run. */
+        handle->entering  = 1U;
+        handle->first_run = 0U;
     }
 }
 
@@ -228,6 +229,32 @@ uint32_t seq_time(const seq_t *handle)
 
 /*****************************************************************************************************/
 /**
+ * @brief Whether the running state is on its first run since it was entered.
+ *
+ * For work a state does once when it starts, such as sending a request, before
+ * it polls for the answer on the runs after. A state runs on every seq_loop()
+ * until it moves on, so without this the request would go out on every pass.
+ * seq_time() reading 0 is no substitute: the main loop can run many times in
+ * one millisecond, and it reads 0 on all of them.
+ *
+ * Every transition counts as entering, one back into the same state included,
+ * and after a wait the first run is the one the wait ends with. Asking for a
+ * transition during the first run does not change the answer for the rest of
+ * that run. Meant to be called from inside a state function.
+ *
+ * @param[in] handle  Handle to read. Must not be NULL.
+ * @return true during the first run of the current state, false on the runs
+ *         after it, once stopped, or if handle is NULL.
+ */
+bool seq_first_run(const seq_t *handle)
+{
+    assert_param(handle != NULL);
+
+    return (handle != NULL) && (handle->first_run != 0U);
+}
+
+/*****************************************************************************************************/
+/**
  * @brief Stop the machine. No state runs until seq_next() or seq_init() is called.
  *
  * Useful for a terminal state, which would otherwise have to keep scheduling
@@ -242,9 +269,10 @@ void seq_stop(seq_t *handle)
 
     if (handle != NULL)
     {
-        handle->next_fn  = NULL;
-        handle->wait_ms  = 0U;
-        handle->entering = 0U;
+        handle->next_fn   = NULL;
+        handle->wait_ms   = 0U;
+        handle->entering  = 0U;
+        handle->first_run = 0U;
     }
 }
 
@@ -284,8 +312,9 @@ uint32_t seq_task_peak(void)
 /**
  * @brief Drop every queued task.
  *
- * Call it from the main loop, not from an interrupt. It moves the consumer's
- * end of the queue, which only the main loop is allowed to touch.
+ * Call it from the main loop or from inside a task, not from an interrupt. It
+ * moves the consumer's end of the queue, which only the main loop is allowed to
+ * touch. Called from a task, it also drops the tasks still due in that pass.
  */
 void seq_task_flush(void)
 {
@@ -376,8 +405,10 @@ seq_err_t seq_task_add(seq_task_fn_t task_fn, void *arg)
 
 /*****************************************************************************************************/
 /**
- * @brief Restart the clock if this is the first run of a new state.
+ * @brief Mark the first run of a new state, and restart its clock.
  *
+ * Called just before every run. first_run is set for the first run after a
+ * transition and cleared on the next, which is what seq_first_run() reports.
  * The clock must not restart on every pass, or seq_time() would sit at zero for
  * a state that runs on every loop, and every timeout built on it would be dead.
  *
@@ -385,6 +416,8 @@ seq_err_t seq_task_add(seq_task_fn_t task_fn, void *arg)
  */
 static void seq_enter(seq_t *handle)
 {
+    handle->first_run = handle->entering;
+
     if (handle->entering != 0U)
     {
         handle->entering = 0U;
@@ -410,19 +443,27 @@ static void seq_queue_run(void)
        the queue as one fuller than it is, which can refuse a task but cannot
        corrupt one. Disabling interrupts here would only lengthen interrupt
        latency. It holds only while seq_loop() has a single caller. */
-    /* Where the queue ended when this call began. Draining to a fixed point
-       rather than to "empty" is what bounds the loop: anything queued while
-       these tasks run, including by a task queueing another, waits for the
-       next pass. Draining to empty would never return if a task kept
-       requeueing itself, or if an interrupt produced faster than this drains,
-       and the state machine would never run again. */
-    uint32_t upto = seq_queue.head;
+    /* How many tasks were queued when this call began. Running that many and
+       no more is what bounds the loop: anything queued while they run,
+       including by a task queueing another, waits for the next pass. Draining
+       to empty would never return if a task kept requeueing itself, or if an
+       interrupt produced faster than this drains, and the state machine would
+       never run again. */
+    uint32_t count = (seq_queue.head + SEQ_MAX_TASKS - seq_queue.tail) % SEQ_MAX_TASKS;
 
-    while (seq_queue.tail != upto)
+    /* Stopping at an empty queue as well is what makes seq_task_flush() safe
+       inside a task. It moves tail up to wherever head has got to, which is
+       past the end of this pass if anything was queued meanwhile. The loop
+       used to wait for tail to reach that end, so it went round the whole ring
+       instead, running every stale task left in the slots, and once it came
+       back to the flushing task's own slot it never returned. */
+    while ((count > 0U) && (seq_queue.tail != seq_queue.head))
     {
         uint32_t      tail      = seq_queue.tail;
         seq_task_fn_t task_fn   = seq_queue.fn[tail];
         void          *task_arg = seq_queue.arg[tail];
+
+        count--;
 
         /* Release the slot before running the task, so the task is free to
            queue another one without hitting a queue that is falsely full.

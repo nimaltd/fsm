@@ -3,7 +3,7 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.0] - 2026-09-20
+## [2.0.0] - 2026-09-24
 
 ### Changed
 
@@ -61,7 +61,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - `seq_stop()` and `seq_running()`, to halt a sequence and ask whether it is halted.
 - `SEQ_ERR_INVALID`, returned by `seq_task_add()` when the task pointer is NULL, so a bad argument is no longer reported as a full queue.
-- `seq_task_peak()` and `seq_task_flush()`, to size `SEQ_MAX_TASKS` by measurement and to drop queued work.
+- `seq_task_peak()` and `seq_task_flush()`, to size `SEQ_MAX_TASKS` by measurement and to drop queued work. `seq_task_flush()` is fine from inside a task as well as from the main loop.
+- `seq_first_run()`, true during the first run of a state, for work the state does only once, such as sending a request before it waits for the answer. Checking `seq_time()` for 0 cannot stand in for it, since the main loop can go round many times in one millisecond.
 - Host unit tests, run with `python test/run_tests.py`.
 - CMake build, and a `library.yml` for installing with stm32-installer, from
   GitHub or from a downloaded zip.

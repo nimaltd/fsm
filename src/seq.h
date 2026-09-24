@@ -95,11 +95,12 @@ typedef enum
  */
 struct seq_s
 {
-    seq_state_fn_t next_fn;  /**< State function to run next.                    */
-    void           *arg;     /**< Handed to next_fn every time it runs.          */
-    uint32_t       time;     /**< Tick value when the current state was entered. */
-    uint32_t       wait_ms;  /**< How long to wait before the next state runs.   */
-    uint8_t        entering; /**< Set until the next state has run once.         */
+    seq_state_fn_t next_fn;   /**< State function to run next.                    */
+    void           *arg;      /**< Handed to next_fn every time it runs.          */
+    uint32_t       time;      /**< Tick value when the current state was entered. */
+    uint32_t       wait_ms;   /**< How long to wait before the next state runs.   */
+    uint8_t        entering;  /**< Set until the next state has run once.         */
+    uint8_t        first_run; /**< Set during the first run of the current state. */
 };
 
 /*
@@ -134,6 +135,12 @@ uint32_t seq_time(const seq_t *handle);
 
 /*****************************************************************************************************/
 /**
+ * @brief Whether the running state is on its first run since it was entered.
+ */
+bool seq_first_run(const seq_t *handle);
+
+/*****************************************************************************************************/
+/**
  * @brief Stop the machine. No state runs until seq_next() or seq_init() is called.
  */
 void seq_stop(seq_t *handle);
@@ -152,7 +159,7 @@ uint32_t seq_task_peak(void);
 
 /*****************************************************************************************************/
 /**
- * @brief Drop every queued task. Call it from the main loop, not an interrupt.
+ * @brief Drop every queued task. Call it from the main loop or a task, not an interrupt.
  */
 void seq_task_flush(void);
 

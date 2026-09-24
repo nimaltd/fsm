@@ -60,6 +60,9 @@ static int      task_calls     = 0;
 static int      task_two_calls = 0;
 static int      requeue_limit  = 0;
 static int      task_total     = 0;
+static int      first_runs     = 0;
+static int      later_runs     = 0;
+static int      flusher_runs   = 0;
 
 static seq_t    test_seq;
 
@@ -143,6 +146,24 @@ static void task_sums(void *arg);
  */
 static void state_waits_then_times_out(seq_t *handle, void *arg);
 
+/*****************************************************************************************************/
+/**
+ * @brief A state that counts its runs by what seq_first_run() says about each.
+ */
+static void state_counts_first_runs(seq_t *handle, void *arg);
+
+/*****************************************************************************************************/
+/**
+ * @brief A state that asks for a transition, then asks seq_first_run().
+ */
+static void state_moves_on_then_asks(seq_t *handle, void *arg);
+
+/*****************************************************************************************************/
+/**
+ * @brief A task that queues task_one and flushes the queue, the first time it runs.
+ */
+static void task_queues_then_flushes(void *arg);
+
 /*
  * ****************************************************************************************************
  * Public function implementations
@@ -185,6 +206,9 @@ void setUp(void)
     last_state_arg     = NULL;
     queue_preempt_with = NULL;
     seq_test_primask   = 0;
+    first_runs         = 0;
+    later_runs         = 0;
+    flusher_runs       = 0;
 }
 
 /*****************************************************************************************************/
@@ -870,6 +894,113 @@ void test_work_queued_during_a_burst_waits(void)
 
 /*****************************************************************************************************/
 /**
+ * @brief A flush from inside a task drops what is left and runs nothing twice.
+ *
+ * The task queues one more and then flushes, with another task still due in the
+ * same pass, which moves tail past the end of the pass. The drain loop used to
+ * go round the whole ring after that, running every stale task left in the
+ * slots, and it never returned once it came back to the flushing task's own
+ * slot. The task still due is what checks the loop stops at an empty queue and
+ * not only after its count: counting alone would read the free slot next.
+ */
+void test_a_flush_inside_a_task_runs_nothing_again(void)
+{
+    seq_init(&test_seq, state_noop, NULL);
+
+    /* Use every slot once, the way a queue looks after a while in a real
+       program: each one still holds the task it last carried. */
+    for (uint32_t i = 0U; i < (SEQ_MAX_TASKS - 1U); i++)
+    {
+        (void)seq_task_add(task_two, NULL);
+    }
+
+    seq_loop(&test_seq);
+    task_two_calls = 0;
+
+    (void)seq_task_add(task_queues_then_flushes, NULL);
+    (void)seq_task_add(task_two, NULL);
+    seq_loop(&test_seq);
+    seq_loop(&test_seq);
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, flusher_runs, "the flushing task ran again");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, task_two_calls, "a flushed or stale task was run");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, task_calls, "the task queued before the flush still ran");
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief Only the first run of a state counts as its first run.
+ */
+void test_first_run_is_only_the_first(void)
+{
+    seq_init(&test_seq, state_counts_first_runs, NULL);
+
+    seq_loop(&test_seq);
+    seq_loop(&test_seq);
+    seq_loop(&test_seq);
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, first_runs, "the first run was not reported as the first");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(2, later_runs, "a later run was reported as the first");
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief A transition starts a new first run, back into the same state and after a wait included.
+ */
+void test_every_transition_starts_a_new_first_run(void)
+{
+    seq_init(&test_seq, state_counts_first_runs, NULL);
+    seq_loop(&test_seq);
+    seq_loop(&test_seq);
+
+    seq_next(&test_seq, state_counts_first_runs, NULL, 100U);
+
+    /* Nothing runs during the wait, so nothing is counted. */
+    test_tick = 50U;
+    seq_loop(&test_seq);
+
+    test_tick = 100U;
+    seq_loop(&test_seq);
+    seq_loop(&test_seq);
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(2, first_runs, "re-entering the state was not a first run");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(2, later_runs, "a run after the wait was counted wrongly");
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief A transition asked for during the first run leaves the answer alone for the rest of it.
+ */
+void test_first_run_holds_for_the_whole_run(void)
+{
+    seq_init(&test_seq, state_moves_on_then_asks, NULL);
+
+    seq_loop(&test_seq);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, first_runs, "seq_next() ended the first run early");
+
+    seq_loop(&test_seq);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(2, first_runs, "the state moved to did not get a first run");
+    TEST_ASSERT_EQUAL_INT(0, later_runs);
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief No first run is reported before a state has run, once stopped, or for NULL.
+ */
+void test_first_run_is_false_outside_a_run(void)
+{
+    seq_init(&test_seq, state_counts_first_runs, NULL);
+    TEST_ASSERT_FALSE_MESSAGE(seq_first_run(&test_seq), "reported before the state ever ran");
+
+    seq_loop(&test_seq);
+    seq_stop(&test_seq);
+    TEST_ASSERT_FALSE_MESSAGE(seq_first_run(&test_seq), "reported by a stopped machine");
+
+    TEST_ASSERT_FALSE(seq_first_run(NULL));
+}
+
+/*****************************************************************************************************/
+/**
  * @brief Run every test and report the result.
  *
  * @return 0 if every test passed, otherwise the number of failures.
@@ -912,6 +1043,11 @@ int main(void)
     RUN_TEST(test_null_is_refused_by_the_new_calls);
     RUN_TEST(test_a_null_task_is_not_reported_as_a_full_queue);
     RUN_TEST(test_time_is_zero_once_stopped);
+    RUN_TEST(test_a_flush_inside_a_task_runs_nothing_again);
+    RUN_TEST(test_first_run_is_only_the_first);
+    RUN_TEST(test_every_transition_starts_a_new_first_run);
+    RUN_TEST(test_first_run_holds_for_the_whole_run);
+    RUN_TEST(test_first_run_is_false_outside_a_run);
 
     return UNITY_END();
 }
@@ -1049,6 +1185,64 @@ static void state_waits_then_times_out(seq_t *handle, void *arg)
     if (seq_time(handle) > 5000U)
     {
         seq_next(handle, state_b, NULL, 0U);
+    }
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief A state that counts its runs by what seq_first_run() says about each.
+ */
+static void state_counts_first_runs(seq_t *handle, void *arg)
+{
+    (void)arg;
+
+    if (seq_first_run(handle))
+    {
+        first_runs++;
+    }
+    else
+    {
+        later_runs++;
+    }
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief A state that asks for a transition, then asks seq_first_run().
+ */
+static void state_moves_on_then_asks(seq_t *handle, void *arg)
+{
+    (void)arg;
+
+    seq_next(handle, state_counts_first_runs, NULL, 0U);
+
+    if (seq_first_run(handle))
+    {
+        first_runs++;
+    }
+    else
+    {
+        later_runs++;
+    }
+}
+
+/*****************************************************************************************************/
+/**
+ * @brief A task that queues task_one and flushes the queue, the first time it runs.
+ *
+ * Only the first time. A stale copy of it that ran again and flushed again kept
+ * the drain loop going round the ring for ever, and a test that hangs tells
+ * nobody anything, so a repeat is counted instead and the test fails.
+ */
+static void task_queues_then_flushes(void *arg)
+{
+    (void)arg;
+    flusher_runs++;
+
+    if (flusher_runs == 1)
+    {
+        (void)seq_task_add(task_one, NULL);
+        seq_task_flush();
     }
 }
 
