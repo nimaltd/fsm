@@ -23,7 +23,7 @@ provides: []
 
 # What the project has to offer before this library works.
 requires:
-  lib_installer: 3.0.0 # the oldest lib-installer that reads this file
+  lib_installer: 4.0.0 # the oldest lib-installer that reads this file
   libraries: []       # other NimaLTD libraries, by name
   hal: true           # uses HAL_GetTick
   cmsis: true         # uses __DMB
